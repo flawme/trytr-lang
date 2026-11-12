@@ -1,0 +1,6 @@
+@document(version: 1) {
+    @heading #welcome {Hello, Trytr}
+    @text #intro {Parsed and drawn as SVG.}
+    @rect #frame(30, 110, 320, 90)
+    @line #rule(30, 220, 350, 220)
+}

@@ -1,0 +1,16 @@
+@document(version: 1) {
+    @heading #title {Trytr graphics}
+    @text #caption {Shapes, paths, and groups.}
+
+    @line #axis(45, 150, 435, 150)
+    @rect #panel(65, 175, 350, 130)
+    @circle #hub(145, 240, 32)
+    @ellipse #orbit(300, 240, 68, 42)
+    @path #curve { M 178 240 C 210 190 245 290 275 240 }
+
+    @group #translated(0, 330) {
+        @rect #small-panel(65, 0, 150, 54)
+        @circle #small-circle(260, 27, 20)
+        @line #connector(215, 27, 240, 27)
+    }
+}

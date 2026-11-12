@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" width="451" height="400" viewBox="0 0 451 400"><title>trytr document</title>
+<text x="16" y="44" font-family="sans-serif" font-size="28" font-weight="700" font-style="normal" id="title"><tspan x="16" dy="0">Trytr graphics</tspan></text>
+<text x="16" y="76" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="caption"><tspan x="16" dy="0">Shapes, paths, and groups.</tspan></text>
+<line id="axis" x1="45" y1="150" x2="435" y2="150" stroke="#222" stroke-width="1"/>
+<rect id="panel" x="65" y="175" width="350" height="130" fill="none" stroke="#222" stroke-width="1"/>
+<circle id="hub" cx="145" cy="240" r="32" fill="none" stroke="#222" stroke-width="1"/>
+<ellipse id="orbit" cx="300" cy="240" rx="68" ry="42" fill="none" stroke="#222" stroke-width="1"/>
+<path id="curve" d="M 178 240 C 210 190 245 290 275 240" fill="none" stroke="#222" stroke-width="1"/>
+<g id="translated" transform="translate(0 330)">
+<rect id="small-panel" x="65" y="0" width="150" height="54" fill="none" stroke="#222" stroke-width="1"/>
+<circle id="small-circle" cx="260" cy="27" r="20" fill="none" stroke="#222" stroke-width="1"/>
+<line id="connector" x1="215" y1="27" x2="240" y2="27" stroke="#222" stroke-width="1"/>
+</g>
+</svg>

@@ -1,0 +1,6 @@
+@document(version: 1) {
+    @heading #title { JFET Characteristics }
+    @math #equation1 { I_D = I_{DSS}(1 - V_{GS}/V_P)^2 }
+    @rect(10, 20, 100, 50)
+    @text { The output characteristic of an N-channel JFET. }
+}

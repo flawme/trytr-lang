@@ -1,0 +1,5 @@
+@document(version: 1) {
+    @group #translated(12, -4) {
+        @rect #box(1, 2, 3, 4)
+    }
+}
