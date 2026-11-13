@@ -131,6 +131,27 @@ static bool test_signed_positional_and_named_rect_values(void)
     return true;
 }
 
+static bool test_document_parses_fixed_canvas_options(void)
+{
+    static const char source[] =
+        "@document(version:1,width:640,height:480){@text{Canvas}}";
+    TrytrParserOutput output;
+    TEST_ASSERT(trytr_parser_parse(source, sizeof(source) - 1u, &output));
+    TEST_ASSERT_INT(1, output.root->version);
+    TEST_ASSERT(output.root->has_canvas_width);
+    TEST_ASSERT(output.root->has_canvas_height);
+    TEST_ASSERT_INT(640, output.root->canvas_width);
+    TEST_ASSERT_INT(480, output.root->canvas_height);
+    trytr_parser_output_destroy(&output);
+
+    static const char duplicate[] =
+        "@document(version:1,width:640,width:800,height:480){}";
+    TEST_ASSERT(!trytr_parser_parse(duplicate, sizeof(duplicate) - 1u, &output));
+    TEST_ASSERT(find_diagnostic(&output, "TRYTR-E-PROPERTY") != NULL);
+    trytr_parser_output_destroy(&output);
+    return true;
+}
+
 static bool test_raw_blocks_preserve_contents_and_trim_outer_space(void)
 {
     static const char source[] =
@@ -202,11 +223,12 @@ static bool test_path_is_parsed_and_invalid_commands_are_located(void)
     TEST_ASSERT_INT(4, output.root->children->path_max_y);
     trytr_parser_output_destroy(&output);
 
-    static const char invalid[] = "@document(version:1){@path{M 1 2 A 3 4}}";
+    static const char invalid[] = "@document(version:1){@path{ \n  M 1 2 A 3 4}}";
     TEST_ASSERT(!trytr_parser_parse(invalid, sizeof(invalid) - 1u, &output));
     const TrytrDiagnostic *diagnostic = find_diagnostic(&output, "TRYTR-E-PATH");
     TEST_ASSERT(diagnostic != NULL);
-    TEST_ASSERT_SIZE(33u, diagnostic->location.offset);
+    TEST_ASSERT_SIZE((size_t)(strstr(invalid, "A 3 4") - invalid),
+                     diagnostic->location.offset);
     trytr_parser_output_destroy(&output);
     return true;
 }
@@ -277,6 +299,7 @@ static bool test_node_and_diagnostic_limits(void)
 static const TrytrTestCase tests[] = {
     {"full illustrative document", test_full_illustrative_document},
     {"signed positional and named rectangles", test_signed_positional_and_named_rect_values},
+    {"fixed canvas document options", test_document_parses_fixed_canvas_options},
     {"raw blocks", test_raw_blocks_preserve_contents_and_trim_outer_space},
     {"unknown element recovery", test_unknown_element_recovers_at_later_nodes},
     {"malformed documents", test_malformed_documents_have_diagnostics},

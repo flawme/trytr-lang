@@ -15,7 +15,10 @@ typedef enum TrytrIROpcode {
     TRYTR_IR_PATH,
     TRYTR_IR_GROUP_BEGIN,
     TRYTR_IR_GROUP_END,
-    TRYTR_IR_ELLIPSE
+    TRYTR_IR_ELLIPSE,
+    TRYTR_IR_POLYGON,
+    TRYTR_IR_ROUNDRECT,
+    TRYTR_IR_PLOT
 } TrytrIROpcode;
 
 typedef struct TrytrIRInstruction {
@@ -23,6 +26,20 @@ typedef struct TrytrIRInstruction {
     size_t element_index;
     const char *stable_id;
     TrytrSourceLocation location;
+    bool has_fill;
+    uint32_t fill_rgb;
+    bool has_stroke;
+    uint32_t stroke_rgb;
+    bool has_stroke_width;
+    int64_t stroke_width;
+    bool has_font_size;
+    int64_t font_size;
+    bool has_text_color;
+    uint32_t text_color_rgb;
+    bool has_text_alignment;
+    TrytrTextAlignment text_alignment;
+    bool has_text_width;
+    int64_t text_width;
     union {
         struct {
             const char *bytes;
@@ -34,6 +51,13 @@ typedef struct TrytrIRInstruction {
             int64_t width;
             int64_t height;
         } rect;
+        struct {
+            int64_t x;
+            int64_t y;
+            int64_t width;
+            int64_t height;
+            int64_t radius;
+        } roundrect;
         struct {
             int64_t x1;
             int64_t y1;
@@ -51,6 +75,28 @@ typedef struct TrytrIRInstruction {
             int64_t rx;
             int64_t ry;
         } ellipse;
+        struct {
+            const char *points;
+            size_t length;
+            size_t point_count;
+            int64_t min_x;
+            int64_t min_y;
+            int64_t max_x;
+            int64_t max_y;
+        } polygon;
+        struct {
+            const char *points;
+            size_t length;
+            size_t point_count;
+            int64_t min_x;
+            int64_t min_y;
+            int64_t max_x;
+            int64_t max_y;
+            int64_t x;
+            int64_t y;
+            int64_t width;
+            int64_t height;
+        } plot;
         struct {
             const char *data;
             size_t length;

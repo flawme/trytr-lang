@@ -1,0 +1,12 @@
+@document(version: 1) {
+    @heading #title {Why √2 is irrational}
+    @text #assume {Assume the displayed equality holds for coprime integers p and q, with q nonzero.}
+    @math #root-equation {\sqrt{2} = \frac{p}{q}}
+    @math #square-both-sides {p^2 = 2q^2}
+    @text #p-even {Since p^2 is even, p is even: odd integers have odd squares.}
+    @math #substitute-p {Write p = 2k for an integer k}
+    @math #simplify {4k^2 = 2q^2, hence q^2 = 2k^2}
+    @text #q-even {So q^2 is even, which means q is even as well.}
+    @text #contradiction {Both p and q are even, contradicting that p and q are coprime.}
+    @text #conclusion {Therefore √2 is irrational.}
+}

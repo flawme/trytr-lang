@@ -39,20 +39,41 @@ typedef enum TrytrElementKind {
     TRYTR_ELEMENT_PATH,
     TRYTR_ELEMENT_GROUP_BEGIN,
     TRYTR_ELEMENT_GROUP_END,
-    TRYTR_ELEMENT_ELLIPSE
+    TRYTR_ELEMENT_ELLIPSE,
+    TRYTR_ELEMENT_POLYGON,
+    TRYTR_ELEMENT_ROUNDRECT,
+    TRYTR_ELEMENT_PLOT
 } TrytrElementKind;
+
+typedef enum TrytrTextAlignment {
+    TRYTR_TEXT_ALIGN_LEFT = 0,
+    TRYTR_TEXT_ALIGN_CENTER,
+    TRYTR_TEXT_ALIGN_RIGHT
+} TrytrTextAlignment;
 
 /*
  * A read-only view of one validated element. The view struct is valid only
  * during the visitor call; its id and text pointers remain valid until the
- * document is destroyed. text is set for heading, text, math, and path elements
- * (path text contains validated SVG path commands).
- * Rectangles use x, y, width, and height; lines use x, y, x2, and y2; circles
- * use x, y, and radius. Ellipses use x, y, radius_x, and radius_y. Group begin
+ * document is destroyed. text is set for heading, text, math, path, polygon,
+ * and plot elements. Path text contains SVG commands; polygon text contains
+ * validated coordinate pairs; plot text contains validated data coordinates.
+ * Rectangles and rounded rectangles use x, y, width, and height; rounded
+ * rectangles also use radius for all four corners. Lines use x, y, x2, and y2;
+ * circles use x, y, and radius. Ellipses use x, y, radius_x, and radius_y. Group begin
  * events use x and y as local translations; matching group end events close
  * the scope. Group events are included in
  * source traversal order. Paths use min_x, min_y, max_x, and max_y for
- * conservative bounds. Only id is an author-defined persistent identity.
+ * conservative bounds. Plots use x, y, width, and height for the chart box;
+ * point_count and min/max coordinates describe their validated data. Only id
+ * is an author-defined persistent identity.
+ * Optional fill_rgb and stroke_rgb values are packed as 0xRRGGBB; check their
+ * corresponding has_fill and has_stroke flags before reading them.
+ * Optional stroke_width is measured in document units and uses
+ * has_stroke_width to distinguish an explicit value from the default of 1.
+ * Text elements may set font_size, text_color_rgb, and text_alignment; check
+ * each corresponding has_* flag before reading an optional value.
+ * Heading and text elements may set text_width as a wrapping width in
+ * document units; math elements keep their source lines unwrapped.
  */
 typedef struct TrytrDocumentElement {
     TrytrElementKind kind;
@@ -73,7 +94,22 @@ typedef struct TrytrDocumentElement {
     int64_t min_y;
     int64_t max_x;
     int64_t max_y;
+    size_t point_count;
     TrytrSourceLocation location;
+    bool has_fill;
+    uint32_t fill_rgb;
+    bool has_stroke;
+    uint32_t stroke_rgb;
+    bool has_stroke_width;
+    int64_t stroke_width;
+    bool has_font_size;
+    int64_t font_size;
+    bool has_text_color;
+    uint32_t text_color_rgb;
+    bool has_text_alignment;
+    TrytrTextAlignment text_alignment;
+    bool has_text_width;
+    int64_t text_width;
 } TrytrDocumentElement;
 
 /* Return false to stop execution; the API then returns EXECUTION_FAILED. */
@@ -104,6 +140,12 @@ TrytrStatus trytr_document_parse(
 );
 
 TrytrStatus trytr_document_validate(TrytrDocument *document);
+/* Returns true and writes both dimensions when the document has a fixed canvas. */
+bool trytr_document_get_canvas_size(
+    const TrytrDocument *document,
+    int64_t *out_width,
+    int64_t *out_height
+);
 /*
  * Executes the validated, bounded document IR in source order. The visitor
  * must not destroy this document or recursively execute it.

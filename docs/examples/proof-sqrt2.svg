@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" width="1328" height="354" viewBox="0 0 1328 354"><title>trytr document</title>
+<text x="16" y="44" font-family="sans-serif" font-size="28" font-weight="700" font-style="normal" id="title"><tspan x="16" dy="0">Why √2 is irrational</tspan></text>
+<text x="16" y="76" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="assume"><tspan x="16" dy="0">Assume the displayed equality holds for coprime integers p and q, with q nonzero.</tspan></text>
+<text x="16" y="108" font-family="serif" font-size="18" font-weight="400" font-style="italic" id="root-equation"><tspan x="16" dy="0"><tspan>√</tspan><tspan text-decoration="overline">2</tspan> = <tspan baseline-shift="super" font-size="70%">p</tspan>⁄<tspan baseline-shift="sub" font-size="70%">q</tspan></tspan></text>
+<text x="16" y="142" font-family="serif" font-size="18" font-weight="400" font-style="italic" id="square-both-sides"><tspan x="16" dy="0">p<tspan baseline-shift="super" font-size="70%">2</tspan> = 2q<tspan baseline-shift="super" font-size="70%">2</tspan></tspan></text>
+<text x="16" y="174" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="p-even"><tspan x="16" dy="0">Since p^2 is even, p is even: odd integers have odd squares.</tspan></text>
+<text x="16" y="206" font-family="serif" font-size="18" font-weight="400" font-style="italic" id="substitute-p"><tspan x="16" dy="0">Write p = 2k for an integer k</tspan></text>
+<text x="16" y="240" font-family="serif" font-size="18" font-weight="400" font-style="italic" id="simplify"><tspan x="16" dy="0">4k<tspan baseline-shift="super" font-size="70%">2</tspan> = 2q<tspan baseline-shift="super" font-size="70%">2</tspan>, hence q<tspan baseline-shift="super" font-size="70%">2</tspan> = 2k<tspan baseline-shift="super" font-size="70%">2</tspan></tspan></text>
+<text x="16" y="272" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="q-even"><tspan x="16" dy="0">So q^2 is even, which means q is even as well.</tspan></text>
+<text x="16" y="302" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="contradiction"><tspan x="16" dy="0">Both p and q are even, contradicting that p and q are coprime.</tspan></text>
+<text x="16" y="332" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="conclusion"><tspan x="16" dy="0">Therefore √2 is irrational.</tspan></text>
+</svg>

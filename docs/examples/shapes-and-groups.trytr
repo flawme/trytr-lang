@@ -1,16 +1,35 @@
-@document(version: 1) {
+@document(version: 1, width: 451, height: 426) {
     @heading #title {Trytr graphics}
-    @text #caption {Shapes, paths, and groups.}
+    @text #caption(font-size:14, color:rgb(65,80,100), align:center, width:210) {Shapes, paths, and groups.
+Text can be styled too.}
 
     @line #axis(45, 150, 435, 150)
-    @rect #panel(65, 175, 350, 130)
-    @circle #hub(145, 240, 32)
+    @rect #panel {
+        x: 65 y: 175 width: 350 height: 130
+        fill: rgb(238, 245, 252)
+        stroke: rgb(50, 78, 105)
+        stroke-width: 2
+    }
+    @roundrect #card {
+        x: 78 y: 188 width: 120 height: 72 radius: 12
+        fill: rgb(255, 218, 128)
+        stroke: rgb(160, 98, 24)
+    }
+    @circle #hub {
+        cx: 145 cy: 240 radius: 32
+        fill: rgb(50, 118, 190)
+    }
     @ellipse #orbit(300, 240, 68, 42)
-    @path #curve { M 178 240 C 210 190 245 290 275 240 }
+    @path #curve(stroke: rgb(130, 58, 190), stroke-width: 3) {
+        M 178 240 C 210 190 245 290 275 240
+    }
 
     @group #translated(0, 330) {
         @rect #small-panel(65, 0, 150, 54)
         @circle #small-circle(260, 27, 20)
         @line #connector(215, 27, 240, 27)
+        @polygon #triangle(fill: rgb(120, 200, 155), stroke-width: 2) {
+            320, 0 390, 40 320, 80
+        }
     }
 }

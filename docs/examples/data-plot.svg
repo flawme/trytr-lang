@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" width="240" height="140" viewBox="0 0 240 140" overflow="hidden"><title>trytr document</title>
+<text x="16" y="44" font-family="sans-serif" font-size="28" font-weight="700" font-style="normal" id="title"><tspan x="16" dy="0">Monthly revenue</tspan></text>
+<text x="16" y="76" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="caption"><tspan x="16" dy="0">A numeric data series drawn directly in the document.</tspan></text>
+<g id="revenue">
+<line x1="24" y1="42" x2="24" y2="120" stroke="#888" stroke-width="1"/>
+<line x1="24" y1="120" x2="216" y2="120" stroke="#888" stroke-width="1"/>
+<path d="M 24.000 120.000 C 36.800 116.028 49.600 111.667 62.400 107.000 C 75.200 102.333 88.000 91.833 100.800 91.833 C 113.600 91.833 126.400 98.333 139.200 98.333 C 152.000 98.333 164.800 79.556 177.600 70.167 C 190.400 60.778 203.200 51.389 216.000 42.000" fill="none" stroke="#222" stroke-width="2"/>
+</g>
+</svg>

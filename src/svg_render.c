@@ -1,6 +1,8 @@
 #include "svg_render.h"
 
 #include "limits.h"
+#include "math_1.h"
+#include "plot.h"
 
 #include <inttypes.h>
 #include <stdarg.h>
@@ -23,6 +25,9 @@ typedef struct SvgState {
     int64_t max_x;
     int64_t max_y;
     int64_t flow_y;
+    bool has_fixed_canvas;
+    int64_t canvas_width;
+    int64_t canvas_height;
     int64_t group_translate_x;
     int64_t group_translate_y;
     int64_t group_stack_x[TRYTR_DEFAULT_DEPTH_LIMIT];
@@ -131,38 +136,226 @@ static size_t next_line_start(const char *text, size_t length, size_t end)
     return end + 1u;
 }
 
+static size_t utf8_scalar_width(unsigned char first)
+{
+    if (first <= 0x7Fu) return 1u;
+    if (first <= 0xDFu) return 2u;
+    if (first <= 0xEFu) return 3u;
+    return 4u;
+}
+
+static size_t utf8_scalar_count(const char *text, size_t length)
+{
+    size_t count = 0u;
+    for (size_t offset = 0u; offset < length; ++count) {
+        size_t width = utf8_scalar_width((unsigned char)text[offset]);
+        if (width > length - offset) width = 1u;
+        offset += width;
+    }
+    return count;
+}
+
+static void text_metrics(const TrytrDocumentElement *element,
+                        int64_t *font_size, int64_t *line_height)
+{
+    int64_t line_gap;
+    switch (element->kind) {
+        case TRYTR_ELEMENT_HEADING:
+            *font_size = 28;
+            line_gap = 8;
+            break;
+        case TRYTR_ELEMENT_MATH:
+            *font_size = 18;
+            line_gap = 8;
+            break;
+        default:
+            *font_size = 16;
+            line_gap = 6;
+            break;
+    }
+    if (element->has_font_size) *font_size = element->font_size;
+    *line_height = *font_size + line_gap;
+}
+
+static int64_t estimated_text_width(const char *text, size_t length,
+                                    int64_t font_size)
+{
+    return (int64_t)utf8_scalar_count(text, length) * font_size;
+}
+
+typedef struct TextLineIterator {
+    const char *text;
+    size_t length;
+    size_t cursor;
+    int64_t font_size;
+    int64_t wrap_width;
+    bool done;
+} TextLineIterator;
+
+typedef struct TextLine {
+    size_t start;
+    size_t end;
+    int64_t width;
+} TextLine;
+
+static bool is_text_space(char value)
+{
+    return value == ' ' || value == '\t';
+}
+
+static void text_iterator_advance_paragraph(TextLineIterator *iterator,
+                                            size_t paragraph_end)
+{
+    if (paragraph_end == iterator->length) {
+        iterator->done = true;
+    } else {
+        iterator->cursor = next_line_start(iterator->text,
+                                           iterator->length,
+                                           paragraph_end);
+    }
+}
+
+static void text_iterator_advance_word(TextLineIterator *iterator,
+                                       size_t word_end,
+                                       size_t paragraph_end)
+{
+    size_t next_word = word_end;
+    while (next_word < paragraph_end &&
+           is_text_space(iterator->text[next_word])) ++next_word;
+    if (next_word == paragraph_end) {
+        text_iterator_advance_paragraph(iterator, paragraph_end);
+    } else {
+        iterator->cursor = next_word;
+    }
+}
+
+static bool text_line_next(TextLineIterator *iterator, TextLine *out_line)
+{
+    if (iterator == NULL || out_line == NULL || iterator->done) return false;
+    const size_t paragraph_end = line_end(iterator->text, iterator->length,
+                                          iterator->cursor);
+    if (iterator->wrap_width <= 0) {
+        out_line->start = iterator->cursor;
+        out_line->end = paragraph_end;
+        out_line->width = estimated_text_width(
+            iterator->text + iterator->cursor,
+            paragraph_end - iterator->cursor,
+            iterator->font_size);
+        text_iterator_advance_paragraph(iterator, paragraph_end);
+        return true;
+    }
+
+    size_t word_start = iterator->cursor;
+    while (word_start < paragraph_end &&
+           is_text_space(iterator->text[word_start])) ++word_start;
+    if (word_start == paragraph_end) {
+        out_line->start = word_start;
+        out_line->end = word_start;
+        out_line->width = 0;
+        text_iterator_advance_paragraph(iterator, paragraph_end);
+        return true;
+    }
+
+    const size_t visual_start = word_start;
+    size_t last_word_end = word_start;
+    int64_t width = 0;
+    for (;;) {
+        size_t word_end = word_start;
+        while (word_end < paragraph_end &&
+               !is_text_space(iterator->text[word_end])) {
+            size_t scalar_width = utf8_scalar_width(
+                (unsigned char)iterator->text[word_end]);
+            if (scalar_width > paragraph_end - word_end) scalar_width = 1u;
+            word_end += scalar_width;
+        }
+        const int64_t word_width = estimated_text_width(
+            iterator->text + word_start, word_end - word_start,
+            iterator->font_size);
+        const int64_t gap_width = width == 0
+            ? 0
+            : (int64_t)(word_start - last_word_end) * iterator->font_size;
+        const int64_t candidate_width = width + gap_width + word_width;
+
+        if (width > 0 && candidate_width > iterator->wrap_width) {
+            out_line->start = visual_start;
+            out_line->end = last_word_end;
+            out_line->width = width;
+            iterator->cursor = word_start;
+            return true;
+        }
+        if (width == 0 && word_width > iterator->wrap_width) {
+            out_line->start = visual_start;
+            out_line->end = word_end;
+            out_line->width = word_width;
+            text_iterator_advance_word(iterator, word_end, paragraph_end);
+            return true;
+        }
+
+        width = candidate_width;
+        last_word_end = word_end;
+        size_t next_word = word_end;
+        while (next_word < paragraph_end &&
+               is_text_space(iterator->text[next_word])) ++next_word;
+        if (next_word == paragraph_end) {
+            out_line->start = visual_start;
+            out_line->end = last_word_end;
+            out_line->width = width;
+            text_iterator_advance_paragraph(iterator, paragraph_end);
+            return true;
+        }
+        word_start = next_word;
+    }
+}
+
+static TextLineIterator text_line_iterator(const TrytrDocumentElement *element,
+                                           int64_t font_size)
+{
+    return (TextLineIterator){
+        .text = element->text == NULL ? "" : element->text,
+        .length = element->text_length,
+        .font_size = font_size,
+        .wrap_width = element->has_text_width &&
+                      (element->kind == TRYTR_ELEMENT_HEADING ||
+                       element->kind == TRYTR_ELEMENT_TEXT)
+            ? element->text_width : 0
+    };
+}
+
 static bool layout_text(SvgState *state, const TrytrDocumentElement *element)
 {
+    if (element->kind != TRYTR_ELEMENT_HEADING &&
+        element->kind != TRYTR_ELEMENT_TEXT &&
+        element->kind != TRYTR_ELEMENT_MATH) return false;
     int64_t font_size;
     int64_t line_height;
-    switch (element->kind) {
-        case TRYTR_ELEMENT_HEADING: font_size = 28; line_height = 36; break;
-        case TRYTR_ELEMENT_MATH: font_size = 18; line_height = 26; break;
-        case TRYTR_ELEMENT_TEXT: font_size = 16; line_height = 22; break;
-        case TRYTR_ELEMENT_RECT:
-        case TRYTR_ELEMENT_LINE:
-        case TRYTR_ELEMENT_CIRCLE: return true;
-        case TRYTR_ELEMENT_ELLIPSE: return true;
-        case TRYTR_ELEMENT_PATH: return true;
-        default: return false;
-    }
+    text_metrics(element, &font_size, &line_height);
     if (element->text == NULL && element->text_length != 0u) return false;
-    const char *text = element->text == NULL ? "" : element->text;
+    TextLineIterator iterator = text_line_iterator(element, font_size);
+    TextLine line;
+    int64_t maximum_width = 0;
+    while (text_line_next(&iterator, &line)) {
+        if (line.width > maximum_width) maximum_width = line.width;
+    }
+    const int64_t alignment_width = element->has_text_width
+        ? element->text_width : maximum_width;
 
-    size_t start = 0u;
+    iterator = text_line_iterator(element, font_size);
     int64_t top = state->flow_y;
-    for (;;) {
-        const size_t end = line_end(text, element->text_length, start);
-        const size_t byte_count = end - start;
-        const int64_t estimated_width = (int64_t)byte_count * font_size;
+    while (text_line_next(&iterator, &line)) {
+        int64_t left = 16;
+        if (element->has_text_alignment &&
+            element->text_alignment == TRYTR_TEXT_ALIGN_CENTER) {
+            left += alignment_width / 2 - line.width / 2;
+        } else if (element->has_text_alignment &&
+                   element->text_alignment == TRYTR_TEXT_ALIGN_RIGHT) {
+            left += alignment_width - line.width;
+        }
         include_bounds(state,
-                       16 + state->group_translate_x,
+                       left + state->group_translate_x,
                        top + state->group_translate_y,
-                       16 + estimated_width + state->group_translate_x,
+                       left + line.width + state->group_translate_x,
                        top + line_height + state->group_translate_y);
         top += line_height;
-        if (end == element->text_length) break;
-        start = next_line_start(text, element->text_length, end);
     }
     state->flow_y = top + 8;
     return true;
@@ -191,6 +384,7 @@ static bool measure_element(const TrytrDocumentElement *element, void *user_data
     }
     switch (element->kind) {
         case TRYTR_ELEMENT_RECT:
+        case TRYTR_ELEMENT_ROUNDRECT:
             include_bounds(state,
                            element->x + state->group_translate_x,
                            element->y + state->group_translate_y,
@@ -230,6 +424,20 @@ static bool measure_element(const TrytrDocumentElement *element, void *user_data
                            element->max_x + state->group_translate_x,
                            element->max_y + state->group_translate_y);
             return true;
+        case TRYTR_ELEMENT_POLYGON:
+            include_bounds(state,
+                           element->min_x + state->group_translate_x,
+                           element->min_y + state->group_translate_y,
+                           element->max_x + state->group_translate_x,
+                           element->max_y + state->group_translate_y);
+            return true;
+        case TRYTR_ELEMENT_PLOT:
+            include_bounds(state,
+                           element->x + state->group_translate_x,
+                           element->y + state->group_translate_y,
+                           element->x + element->width + state->group_translate_x,
+                           element->y + element->height + state->group_translate_y);
+            return true;
         default:
             return layout_text(state, element);
     }
@@ -243,6 +451,13 @@ static bool append_xml_text(SvgBuffer *buffer, const char *text, size_t length)
         const unsigned char first = (unsigned char)text[offset];
         size_t width = first <= 0x7Fu ? 1u :
                        first <= 0xDFu ? 2u : first <= 0xEFu ? 3u : 4u;
+        if (width > length - offset) {
+            if (!buffer_append(buffer, replacement, sizeof(replacement) - 1u)) {
+                return false;
+            }
+            ++offset;
+            continue;
+        }
         uint32_t codepoint = width == 1u ? (uint32_t)first :
             (uint32_t)(first & (width == 2u ? 0x1Fu : width == 3u ? 0x0Fu : 0x07u));
         for (size_t index = 1u; index < width; ++index) {
@@ -268,58 +483,315 @@ static bool append_xml_text(SvgBuffer *buffer, const char *text, size_t length)
     return true;
 }
 
+static bool math_group_end(const char *text, size_t length, size_t open,
+                           size_t *out_close)
+{
+    size_t nesting = 1u;
+    for (size_t offset = open + 1u; offset < length; ++offset) {
+        if (text[offset] == '\\' && offset + 1u < length &&
+            (text[offset + 1u] == '_' || text[offset + 1u] == '^' ||
+             text[offset + 1u] == '{' || text[offset + 1u] == '}' ||
+             text[offset + 1u] == '\\')) {
+            ++offset;
+        } else if (text[offset] == '{') {
+            ++nesting;
+        } else if (text[offset] == '}' && --nesting == 0u) {
+            *out_close = offset;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool append_math_text(SvgBuffer *buffer, const char *text,
+                             size_t *cursor, size_t end, size_t depth)
+{
+    static const char root_prefix[] =
+        "<tspan>√</tspan><tspan text-decoration=\"overline\">";
+    static const char fraction_slash[] = "⁄";
+    while (*cursor < end) {
+        const size_t start = *cursor;
+        const char value = text[start];
+        if (value == '\\' && start + 5u < end &&
+            memcmp(text + start + 1u, "sqrt", 4u) == 0 &&
+            text[start + 5u] == '{') {
+            size_t close = 0u;
+            if (depth < TRYTR_DEFAULT_MATH_SCRIPT_DEPTH &&
+                math_group_end(text, end, start + 5u, &close)) {
+                if (!buffer_append(buffer, root_prefix, sizeof(root_prefix) - 1u)) return false;
+                size_t inner = start + 6u;
+                if (!append_math_text(buffer, text, &inner, close, depth + 1u) ||
+                    !buffer_append(buffer, "</tspan>", 8u)) return false;
+                *cursor = close + 1u;
+                continue;
+            }
+        }
+        if (value == '\\' && start + 5u < end &&
+            memcmp(text + start + 1u, "frac", 4u) == 0 &&
+            text[start + 5u] == '{' && depth < TRYTR_DEFAULT_MATH_SCRIPT_DEPTH) {
+            size_t numerator_close = 0u;
+            if (math_group_end(text, end, start + 5u, &numerator_close) &&
+                numerator_close + 1u < end && text[numerator_close + 1u] == '{') {
+                size_t denominator_close = 0u;
+                if (math_group_end(text, end, numerator_close + 1u,
+                                   &denominator_close)) {
+                    if (!buffer_append(buffer,
+                                       "<tspan baseline-shift=\"super\" font-size=\"70%\">",
+                                       sizeof("<tspan baseline-shift=\"super\" font-size=\"70%\">") - 1u)) {
+                        return false;
+                    }
+                    size_t numerator = start + 6u;
+                    if (!append_math_text(buffer, text, &numerator,
+                                          numerator_close, depth + 1u) ||
+                        !buffer_append(buffer, "</tspan>", 8u) ||
+                        !append_xml_text(buffer, fraction_slash,
+                                         sizeof(fraction_slash) - 1u) ||
+                        !buffer_append(buffer,
+                                       "<tspan baseline-shift=\"sub\" font-size=\"70%\">",
+                                       sizeof("<tspan baseline-shift=\"sub\" font-size=\"70%\">") - 1u)) {
+                        return false;
+                    }
+                    size_t denominator = numerator_close + 2u;
+                    if (!append_math_text(buffer, text, &denominator,
+                                          denominator_close, depth + 1u) ||
+                        !buffer_append(buffer, "</tspan>", 8u)) return false;
+                    *cursor = denominator_close + 1u;
+                    continue;
+                }
+            }
+        }
+        if (value == '\\' && start + 1u < end &&
+            (text[start + 1u] == '_' || text[start + 1u] == '^' ||
+             text[start + 1u] == '{' || text[start + 1u] == '}' ||
+             text[start + 1u] == '\\')) {
+            if (!append_xml_text(buffer, text + start + 1u, 1u)) return false;
+            *cursor += 2u;
+            continue;
+        }
+        if ((value == '_' || value == '^') && start + 1u < end) {
+            size_t argument_start = start + 1u;
+            size_t argument_end = argument_start;
+            bool grouped = text[argument_start] == '{';
+            bool has_script = !grouped;
+            if (grouped) {
+                size_t close = 0u;
+                if (depth < TRYTR_DEFAULT_MATH_SCRIPT_DEPTH &&
+                    math_group_end(text, end, argument_start, &close)) {
+                    argument_start++;
+                    argument_end = close;
+                    has_script = true;
+                }
+            } else {
+                argument_end += utf8_scalar_width((unsigned char)text[argument_start]);
+            }
+            if (has_script) {
+                const char *shift = value == '_' ? "sub" : "super";
+                if (!buffer_format(buffer,
+                                   "<tspan baseline-shift=\"%s\" font-size=\"70%%\">",
+                                   shift)) return false;
+                size_t inner = argument_start;
+                bool ok = grouped
+                    ? append_math_text(buffer, text, &inner, argument_end, depth + 1u)
+                    : append_xml_text(buffer, text + argument_start,
+                                      argument_end - argument_start);
+                if (!ok || !buffer_append(buffer, "</tspan>", 8u)) return false;
+                *cursor = grouped ? argument_end + 1u : argument_end;
+                continue;
+            }
+            /* Preserve malformed or over-deep script groups as source text. */
+        }
+        const size_t width = utf8_scalar_width((unsigned char)value);
+        if (!append_xml_text(buffer, text + start, width)) return false;
+        *cursor += width;
+    }
+    return true;
+}
+
 static bool render_text(SvgState *state, const TrytrDocumentElement *element)
 {
     const char *family = "sans-serif";
-    int64_t font_size = 16;
-    int64_t line_height = 22;
+    int64_t font_size;
+    int64_t line_height;
+    text_metrics(element, &font_size, &line_height);
     const char *weight = "400";
     const char *style = "normal";
     if (element->kind == TRYTR_ELEMENT_HEADING) {
-        font_size = 28;
-        line_height = 36;
         weight = "700";
     } else if (element->kind == TRYTR_ELEMENT_MATH) {
         family = "serif";
-        font_size = 18;
-        line_height = 26;
         style = "italic";
     }
+    if (element->text == NULL && element->text_length != 0u) return false;
+    const char *text = element->text == NULL ? "" : element->text;
+    TextLineIterator iterator = text_line_iterator(element, font_size);
+    TextLine line;
+    int64_t maximum_width = 0;
+    while (text_line_next(&iterator, &line)) {
+        if (line.width > maximum_width) maximum_width = line.width;
+    }
+    const int64_t alignment_width = element->has_text_width
+        ? element->text_width : maximum_width;
+    int64_t anchor_x = 16;
+    const char *anchor = NULL;
+    if (element->has_text_alignment &&
+        element->text_alignment == TRYTR_TEXT_ALIGN_CENTER) {
+        anchor_x += alignment_width / 2;
+        anchor = "middle";
+    } else if (element->has_text_alignment &&
+               element->text_alignment == TRYTR_TEXT_ALIGN_RIGHT) {
+        anchor_x += alignment_width;
+        anchor = "end";
+    }
     if (!buffer_format(&state->output,
-                       "<text x=\"16\" y=\"%" PRId64
+                       "<text x=\"%" PRId64 "\" y=\"%" PRId64
                        "\" font-family=\"%s\" font-size=\"%" PRId64
                        "\" font-weight=\"%s\" font-style=\"%s\"",
-                       state->flow_y + font_size, family, font_size, weight, style)) return false;
+                       anchor_x,
+                       state->flow_y + font_size,
+                       family, font_size, weight, style)) return false;
+    if (anchor != NULL &&
+        !buffer_format(&state->output, " text-anchor=\"%s\"", anchor)) return false;
+    if (element->has_text_color &&
+        !buffer_format(&state->output, " fill=\"#%06" PRIx32 "\"",
+                       element->text_color_rgb)) return false;
     if (element->id != NULL &&
         !buffer_format(&state->output, " id=\"%s\"", element->id)) return false;
     if (!buffer_append(&state->output, ">", 1u)) return false;
 
-    const char *text = element->text == NULL ? "" : element->text;
-    size_t start = 0u;
-    bool first_line = true;
-    for (;;) {
-        const size_t end = line_end(text, element->text_length, start);
+    iterator = text_line_iterator(element, font_size);
+    size_t line_count = 0u;
+    while (text_line_next(&iterator, &line)) {
         if (!buffer_format(&state->output,
-                           "<tspan x=\"16\" dy=\"%" PRId64 "\">",
-                           first_line ? 0 : line_height) ||
-            !append_xml_text(&state->output, text + start, end - start) ||
+                           "<tspan x=\"%" PRId64 "\" dy=\"%" PRId64 "\">",
+                           anchor_x,
+                           line_count == 0u ? 0 : line_height) ||
+            !(element->kind == TRYTR_ELEMENT_MATH
+                  ? append_math_text(&state->output, text,
+                                     &line.start, line.end, 0u)
+                  : append_xml_text(&state->output,
+                                   text + line.start,
+                                   line.end - line.start)) ||
             !buffer_append(&state->output, "</tspan>", 8u)) return false;
-        first_line = false;
-        if (end == element->text_length) break;
-        start = next_line_start(text, element->text_length, end);
+        ++line_count;
     }
     if (!buffer_append(&state->output, "</text>\n", 8u)) return false;
 
-    size_t line_start = 0u;
-    int64_t top = state->flow_y;
-    for (;;) {
-        const size_t end = line_end(text, element->text_length, line_start);
-        top += line_height;
-        if (end == element->text_length) break;
-        line_start = next_line_start(text, element->text_length, end);
-    }
-    state->flow_y = top + 8;
+    state->flow_y += (int64_t)line_count * line_height + 8;
     return true;
+}
+
+static bool append_shape_paint(SvgBuffer *output,
+                               const TrytrDocumentElement *element,
+                               bool supports_fill)
+{
+    if (supports_fill) {
+        if (element->has_fill) {
+            if (!buffer_format(output, " fill=\"#%06" PRIx32 "\"",
+                               element->fill_rgb)) return false;
+        } else if (!buffer_append(output, " fill=\"none\"", 12u)) {
+            return false;
+        }
+    }
+    if (element->has_stroke) {
+        if (!buffer_format(output, " stroke=\"#%06" PRIx32 "\"",
+                           element->stroke_rgb)) return false;
+    } else if (!buffer_append(output, " stroke=\"#222\"", 14u)) {
+        return false;
+    }
+    const int64_t stroke_width = element->has_stroke_width
+        ? element->stroke_width : 1;
+    return buffer_format(output, " stroke-width=\"%" PRId64 "\"", stroke_width);
+}
+
+static void skip_plot_separators(const char **cursor, const char *end)
+{
+    while (*cursor < end && (**cursor == ' ' || **cursor == '\t' ||
+           **cursor == '\n' || **cursor == '\r' || **cursor == ',')) ++*cursor;
+}
+
+static bool read_plot_integer(const char **cursor, const char *end, int64_t *out_value)
+{
+    skip_plot_separators(cursor, end);
+    if (*cursor >= end) return false;
+    char *parsed_end = NULL;
+    const long long value = strtoll(*cursor, &parsed_end, 10);
+    if (parsed_end == *cursor || parsed_end > end) return false;
+    *cursor = parsed_end;
+    *out_value = (int64_t)value;
+    return true;
+}
+
+static double plot_x(const TrytrDocumentElement *element, int64_t value)
+{
+    const int64_t span = element->max_x - element->min_x;
+    if (span == 0) return (double)element->x + (double)element->width / 2.0;
+    return (double)element->x +
+           (double)(value - element->min_x) * (double)element->width / (double)span;
+}
+
+static double plot_y(const TrytrDocumentElement *element, int64_t value)
+{
+    const int64_t span = element->max_y - element->min_y;
+    if (span == 0) return (double)element->y + (double)element->height / 2.0;
+    return (double)element->y + (double)element->height -
+           (double)(value - element->min_y) * (double)element->height / (double)span;
+}
+
+static TrytrMathPoint map_plot_point(const TrytrDocumentElement *element,
+                                     int64_t x, int64_t y)
+{
+    return (TrytrMathPoint){
+        .x = plot_x(element, x),
+        .y = plot_y(element, y)
+    };
+}
+
+static bool render_plot(SvgState *state, const TrytrDocumentElement *element)
+{
+    static const char curve_suffix[] =
+        "\" fill=\"none\" stroke=\"#222\" stroke-width=\"2\"/>\n";
+    SvgBuffer *output = &state->output;
+    if (!buffer_append(output, "<g", 2u)) return false;
+    if (element->id != NULL && !buffer_format(output, " id=\"%s\"", element->id)) return false;
+    if (!buffer_append(output, ">\n", 2u)) return false;
+    const int64_t right = element->x + element->width;
+    const int64_t bottom = element->y + element->height;
+    if (!buffer_format(output,
+                       "<line x1=\"%" PRId64 "\" y1=\"%" PRId64
+                       "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
+                       "\" stroke=\"#888\" stroke-width=\"1\"/>\n"
+                       "<line x1=\"%" PRId64 "\" y1=\"%" PRId64
+                       "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
+                       "\" stroke=\"#888\" stroke-width=\"1\"/>\n",
+                       element->x, element->y, element->x, bottom,
+                       element->x, bottom, right, bottom)) return false;
+    TrytrMathPoint points[TRYTR_DEFAULT_PLOT_POINT_LIMIT];
+    TrytrMathCubic segments[TRYTR_DEFAULT_PLOT_POINT_LIMIT - 1u];
+    const char *cursor = element->text;
+    const char *end = cursor + element->text_length;
+    size_t point_count = 0u;
+    while (cursor < end && point_count < TRYTR_DEFAULT_PLOT_POINT_LIMIT) {
+        int64_t x = 0;
+        int64_t y = 0;
+        if (!read_plot_integer(&cursor, end, &x) ||
+            !read_plot_integer(&cursor, end, &y)) return false;
+        points[point_count] = map_plot_point(element, x, y);
+        ++point_count;
+    }
+    if (point_count != element->point_count || point_count < 2u) return false;
+    if (!trytr_math_build_curve(points, point_count, segments)) return false;
+    if (!buffer_format(output, "<path d=\"M %.3f %.3f",
+                       points[0].x, points[0].y)) return false;
+    for (size_t index = 0u; index + 1u < point_count; ++index) {
+        const TrytrMathCubic *segment = &segments[index];
+        if (!buffer_format(output,
+                           " C %.3f %.3f %.3f %.3f %.3f %.3f",
+                           segment->control1.x, segment->control1.y,
+                           segment->control2.x, segment->control2.y,
+                           segment->end.x, segment->end.y)) return false;
+    }
+    if (!buffer_append(output, curve_suffix, sizeof(curve_suffix) - 1u)) return false;
+    return buffer_append(output, "</g>\n", 5u);
 }
 
 static bool render_element(const TrytrDocumentElement *element, void *user_data)
@@ -336,15 +808,26 @@ static bool render_element(const TrytrDocumentElement *element, void *user_data)
     if (element->kind == TRYTR_ELEMENT_GROUP_END) {
         return buffer_append(&state->output, "</g>\n", 5u);
     }
-    if (element->kind == TRYTR_ELEMENT_RECT) {
+    if (element->kind == TRYTR_ELEMENT_RECT ||
+        element->kind == TRYTR_ELEMENT_ROUNDRECT) {
         if (element->id != NULL &&
             !buffer_format(&state->output, "<rect id=\"%s\"", element->id)) return false;
         if (element->id == NULL && !buffer_append(&state->output, "<rect", 5u)) return false;
-        return buffer_format(&state->output,
-                             " x=\"%" PRId64 "\" y=\"%" PRId64
-                             "\" width=\"%" PRId64 "\" height=\"%" PRId64
-                             "\" fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>\n",
-                             element->x, element->y, element->width, element->height);
+        if (element->kind == TRYTR_ELEMENT_ROUNDRECT) {
+            if (!buffer_format(&state->output,
+                               " x=\"%" PRId64 "\" y=\"%" PRId64
+                               "\" width=\"%" PRId64 "\" height=\"%" PRId64
+                               "\" rx=\"%" PRId64 "\" ry=\"%" PRId64 "\"",
+                               element->x, element->y, element->width, element->height,
+                               element->radius, element->radius)) return false;
+        } else if (!buffer_format(&state->output,
+                                  " x=\"%" PRId64 "\" y=\"%" PRId64
+                                  "\" width=\"%" PRId64 "\" height=\"%" PRId64 "\"",
+                                  element->x, element->y, element->width, element->height)) {
+            return false;
+        }
+        return append_shape_paint(&state->output, element, true) &&
+               buffer_append(&state->output, "/>\n", 3u);
     }
     if (element->kind == TRYTR_ELEMENT_LINE) {
         if (element->id != NULL &&
@@ -352,9 +835,10 @@ static bool render_element(const TrytrDocumentElement *element, void *user_data)
         if (element->id == NULL && !buffer_append(&state->output, "<line", 5u)) return false;
         return buffer_format(&state->output,
                              " x1=\"%" PRId64 "\" y1=\"%" PRId64
-                             "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
-                             "\" stroke=\"#222\" stroke-width=\"1\"/>\n",
-                             element->x, element->y, element->x2, element->y2);
+                             "\" x2=\"%" PRId64 "\" y2=\"%" PRId64 "\"",
+                             element->x, element->y, element->x2, element->y2) &&
+               append_shape_paint(&state->output, element, false) &&
+               buffer_append(&state->output, "/>\n", 3u);
     }
     if (element->kind == TRYTR_ELEMENT_CIRCLE) {
         if (element->id != NULL &&
@@ -362,9 +846,10 @@ static bool render_element(const TrytrDocumentElement *element, void *user_data)
         if (element->id == NULL && !buffer_append(&state->output, "<circle", 7u)) return false;
         return buffer_format(&state->output,
                              " cx=\"%" PRId64 "\" cy=\"%" PRId64
-                             "\" r=\"%" PRId64
-                             "\" fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>\n",
-                             element->x, element->y, element->radius);
+                             "\" r=\"%" PRId64 "\"",
+                             element->x, element->y, element->radius) &&
+               append_shape_paint(&state->output, element, true) &&
+               buffer_append(&state->output, "/>\n", 3u);
     }
     if (element->kind == TRYTR_ELEMENT_ELLIPSE) {
         if (element->id != NULL &&
@@ -372,13 +857,12 @@ static bool render_element(const TrytrDocumentElement *element, void *user_data)
         if (element->id == NULL && !buffer_append(&state->output, "<ellipse", 8u)) return false;
         return buffer_format(&state->output,
                              " cx=\"%" PRId64 "\" cy=\"%" PRId64
-                             "\" rx=\"%" PRId64 "\" ry=\"%" PRId64
-                             "\" fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>\n",
-                             element->x, element->y, element->radius_x, element->radius_y);
+                             "\" rx=\"%" PRId64 "\" ry=\"%" PRId64 "\"",
+                             element->x, element->y, element->radius_x, element->radius_y) &&
+               append_shape_paint(&state->output, element, true) &&
+               buffer_append(&state->output, "/>\n", 3u);
     }
     if (element->kind == TRYTR_ELEMENT_PATH) {
-        static const char suffix[] =
-            "\" fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>\n";
         if (element->id != NULL &&
             !buffer_format(&state->output, "<path id=\"%s\" d=\"", element->id)) return false;
         if (element->id == NULL && !buffer_append(&state->output, "<path d=\"", 9u)) return false;
@@ -390,8 +874,28 @@ static bool render_element(const TrytrDocumentElement *element, void *user_data)
                 return false;
             }
         }
-        return buffer_append(&state->output, suffix, sizeof(suffix) - 1u);
+        return buffer_append(&state->output, "\"", 1u) &&
+               append_shape_paint(&state->output, element, true) &&
+               buffer_append(&state->output, "/>\n", 3u);
     }
+    if (element->kind == TRYTR_ELEMENT_POLYGON) {
+        if (element->id != NULL &&
+            !buffer_format(&state->output, "<polygon id=\"%s\" points=\"", element->id)) return false;
+        if (element->id == NULL &&
+            !buffer_append(&state->output, "<polygon points=\"", 17u)) return false;
+        for (size_t index = 0u; index < element->text_length; ++index) {
+            const char value = element->text[index];
+            if (value == '\n' || value == '\r' || value == '\t') {
+                if (!buffer_append(&state->output, " ", 1u)) return false;
+            } else if (!buffer_append(&state->output, &value, 1u)) {
+                return false;
+            }
+        }
+        return buffer_append(&state->output, "\"", 1u) &&
+               append_shape_paint(&state->output, element, true) &&
+               buffer_append(&state->output, "/>\n", 3u);
+    }
+    if (element->kind == TRYTR_ELEMENT_PLOT) return render_plot(state, element);
     return render_text(state, element);
 }
 
@@ -401,14 +905,22 @@ static TrytrStatus append_svg_header(SvgState *state)
     int64_t min_y = state->have_bounds ? state->min_y - 16 : 0;
     int64_t width = state->have_bounds ? state->max_x - state->min_x + 32 : 1;
     int64_t height = state->have_bounds ? state->max_y - state->min_y + 32 : 1;
+    const char *overflow = "";
+    if (state->has_fixed_canvas) {
+        min_x = 0;
+        min_y = 0;
+        width = state->canvas_width;
+        height = state->canvas_height;
+        overflow = " overflow=\"hidden\"";
+    }
     if (width < 1) width = 1;
     if (height < 1) height = 1;
     if (!buffer_format(&state->output,
                        "<svg xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" "
                        "width=\"%" PRId64 "\" height=\"%" PRId64
                        "\" viewBox=\"%" PRId64 " %" PRId64 " %" PRId64 " %" PRId64
-                       "\"><title>trytr document</title>\n",
-                       width, height, min_x, min_y, width, height)) {
+                       "\"%s><title>trytr document</title>\n",
+                       width, height, min_x, min_y, width, height, overflow)) {
         return state->output.status;
     }
     return TRYTR_STATUS_OK;
@@ -427,6 +939,8 @@ TrytrStatus trytr_svg_render(
     *out_length = 0u;
 
     SvgState state = {.flow_y = 16};
+    state.has_fixed_canvas = trytr_document_get_canvas_size(
+        document, &state.canvas_width, &state.canvas_height);
     TrytrStatus status = trytr_document_execute(document, measure_element, &state);
     if (status != TRYTR_STATUS_OK) return status;
     status = append_svg_header(&state);

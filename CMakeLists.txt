@@ -46,14 +46,22 @@ add_library(
         src/ast.c
         src/lexer.c
         src/path.c
+        src/math_1.c
+        src/polygon.c
+        src/plot.c
         src/parser.c
         src/validator.c
         src/ir.c
         src/vm.c
         src/svg_render.c
+        src/text_raster.c
+        src/text_render.c
         src/document.c
 )
 target_include_directories(trytr_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+if(UNIX)
+    target_link_libraries(trytr_core PUBLIC m)
+endif()
 trytr_target_defaults(trytr_core)
 
 add_executable(trytr src/main.c)
@@ -76,10 +84,16 @@ if(BUILD_TESTING)
     trytr_add_test(trytr_parser_tests trytr.parser tests/test_parser.c)
     trytr_add_test(trytr_expression_tests trytr.expressions tests/test_expressions.c)
     trytr_add_test(trytr_path_tests trytr.path tests/test_path.c)
+    trytr_add_test(trytr_math_1_tests trytr.math_1 tests/test_math_1.c)
+    trytr_add_test(trytr_polygon_tests trytr.polygon tests/test_polygon.c)
+    trytr_add_test(trytr_plot_tests trytr.plot tests/test_plot.c)
+    trytr_add_test(trytr_roundrect_tests trytr.roundrect tests/test_roundrect.c)
+    trytr_add_test(trytr_style_tests trytr.style tests/test_style.c)
     trytr_add_test(trytr_group_tests trytr.groups tests/test_groups.c)
     trytr_add_test(trytr_document_tests trytr.document tests/test_document.c)
     trytr_add_test(trytr_vm_tests trytr.vm tests/test_vm.c)
     trytr_add_test(trytr_svg_tests trytr.svg tests/test_svg.c)
+    trytr_add_test(trytr_text_render_tests trytr.text_render tests/test_text_render.c)
 
     add_test(NAME trytr.cli.version COMMAND trytr --version)
     set_tests_properties(
@@ -100,12 +114,28 @@ if(BUILD_TESTING)
         PROPERTIES PASS_REGULAR_EXPRESSION "<g id="
     )
     add_test(
+        NAME trytr.cli.render_text
+        COMMAND trytr --render-text "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/text-graph.trytr"
+    )
+    set_tests_properties(
+        trytr.cli.render_text
+        PROPERTIES PASS_REGULAR_EXPRESSION "Revenue"
+    )
+    add_test(
         NAME trytr.cli.dump_group_events
         COMMAND trytr --dump-ir "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/groups.trytr"
     )
     set_tests_properties(
         trytr.cli.dump_group_events
         PROPERTIES PASS_REGULAR_EXPRESSION "group-begin"
+    )
+    add_test(
+        NAME trytr.cli.proof
+        COMMAND trytr --render-svg "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/proof-sqrt2.trytr"
+    )
+    set_tests_properties(
+        trytr.cli.proof
+        PROPERTIES PASS_REGULAR_EXPRESSION "Both p and q are even, contradicting that p and q are coprime"
     )
     add_test(
         NAME trytr.cli.invalid
@@ -115,4 +145,15 @@ if(BUILD_TESTING)
             "-DTRYTR_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/invalid.trytr"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_invalid_cli.cmake"
     )
+
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME trytr.mcp
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mcp.py"
+                "$<TARGET_FILE:trytr>"
+        )
+    endif()
 endif()

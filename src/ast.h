@@ -18,7 +18,10 @@ typedef enum TrytrNodeKind {
     TRYTR_NODE_CIRCLE,
     TRYTR_NODE_PATH,
     TRYTR_NODE_GROUP,
-    TRYTR_NODE_ELLIPSE
+    TRYTR_NODE_ELLIPSE,
+    TRYTR_NODE_POLYGON,
+    TRYTR_NODE_ROUNDRECT,
+    TRYTR_NODE_PLOT
 } TrytrNodeKind;
 
 typedef struct TrytrProperty {
@@ -34,6 +37,10 @@ typedef struct TrytrNode {
     char *text;
     size_t text_length;
     int64_t version;
+    int64_t canvas_width;
+    int64_t canvas_height;
+    bool has_canvas_width;
+    bool has_canvas_height;
     int64_t group_translate_x;
     int64_t group_translate_y;
     int64_t path_min_x;
@@ -41,6 +48,16 @@ typedef struct TrytrNode {
     int64_t path_max_x;
     int64_t path_max_y;
     size_t path_segment_count;
+    int64_t polygon_min_x;
+    int64_t polygon_min_y;
+    int64_t polygon_max_x;
+    int64_t polygon_max_y;
+    size_t polygon_point_count;
+    int64_t plot_min_x;
+    int64_t plot_min_y;
+    int64_t plot_max_x;
+    int64_t plot_max_y;
+    size_t plot_point_count;
     TrytrSourceLocation location;
     TrytrProperty *properties;
     TrytrProperty *properties_tail;

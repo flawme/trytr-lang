@@ -26,6 +26,15 @@ static bool rect_operands(const TrytrNode *node, TrytrIRInstruction *instruction
            shape_property(node, "height", &instruction->operands.rect.height);
 }
 
+static bool roundrect_operands(const TrytrNode *node, TrytrIRInstruction *instruction)
+{
+    return shape_property(node, "x", &instruction->operands.roundrect.x) &&
+           shape_property(node, "y", &instruction->operands.roundrect.y) &&
+           shape_property(node, "width", &instruction->operands.roundrect.width) &&
+           shape_property(node, "height", &instruction->operands.roundrect.height) &&
+           shape_property(node, "radius", &instruction->operands.roundrect.radius);
+}
+
 static bool line_operands(const TrytrNode *node, TrytrIRInstruction *instruction)
 {
     return shape_property(node, "x1", &instruction->operands.line.x1) &&
@@ -62,7 +71,8 @@ static TrytrStatus account_nodes(const TrytrNode *parent, size_t *instruction_co
         *execution_units += instruction_cost;
 
         if (node->kind == TRYTR_NODE_HEADING || node->kind == TRYTR_NODE_TEXT ||
-            node->kind == TRYTR_NODE_MATH || node->kind == TRYTR_NODE_PATH) {
+            node->kind == TRYTR_NODE_MATH || node->kind == TRYTR_NODE_PATH ||
+            node->kind == TRYTR_NODE_POLYGON || node->kind == TRYTR_NODE_PLOT) {
             if (node->text == NULL) return TRYTR_STATUS_INVALID_DOCUMENT;
             if (node->text_length > TRYTR_DEFAULT_EXECUTION_TEXT_LIMIT - *text_bytes) {
                 return TRYTR_STATUS_LIMIT_EXCEEDED;
@@ -75,6 +85,20 @@ static TrytrStatus account_nodes(const TrytrNode *parent, size_t *instruction_co
                 return TRYTR_STATUS_LIMIT_EXCEEDED;
             }
             *execution_units += node->path_segment_count;
+        }
+        if (node->kind == TRYTR_NODE_POLYGON) {
+            if (node->polygon_point_count > TRYTR_DEFAULT_POLYGON_POINT_LIMIT ||
+                node->polygon_point_count > TRYTR_DEFAULT_VM_FUEL - *execution_units) {
+                return TRYTR_STATUS_LIMIT_EXCEEDED;
+            }
+            *execution_units += node->polygon_point_count;
+        }
+        if (node->kind == TRYTR_NODE_PLOT) {
+            if (node->plot_point_count > TRYTR_DEFAULT_PLOT_POINT_LIMIT ||
+                node->plot_point_count > TRYTR_DEFAULT_VM_FUEL - *execution_units) {
+                return TRYTR_STATUS_LIMIT_EXCEEDED;
+            }
+            *execution_units += node->plot_point_count;
         }
         if (node->kind == TRYTR_NODE_GROUP) {
             TrytrStatus status = account_nodes(node, instruction_count, text_bytes,
@@ -119,6 +143,36 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
     instruction->element_index = current_node_index;
     instruction->stable_id = node->id;
     instruction->location = node->location;
+    int64_t color_value = 0;
+    if (shape_property(node, "fill", &color_value)) {
+        instruction->has_fill = true;
+        instruction->fill_rgb = (uint32_t)color_value;
+    }
+    if (shape_property(node, "stroke", &color_value)) {
+        instruction->has_stroke = true;
+        instruction->stroke_rgb = (uint32_t)color_value;
+    }
+    if (shape_property(node, "stroke-width", &color_value)) {
+        instruction->has_stroke_width = true;
+        instruction->stroke_width = color_value;
+    }
+    if (shape_property(node, "font-size", &color_value)) {
+        instruction->has_font_size = true;
+        instruction->font_size = color_value;
+    }
+    if (shape_property(node, "color", &color_value)) {
+        instruction->has_text_color = true;
+        instruction->text_color_rgb = (uint32_t)color_value;
+    }
+    if (shape_property(node, "align", &color_value)) {
+        instruction->has_text_alignment = true;
+        instruction->text_alignment = (TrytrTextAlignment)color_value;
+    }
+    if (shape_property(node, "width", &color_value) &&
+        (node->kind == TRYTR_NODE_HEADING || node->kind == TRYTR_NODE_TEXT)) {
+        instruction->has_text_width = true;
+        instruction->text_width = color_value;
+    }
     switch (node->kind) {
         case TRYTR_NODE_HEADING:
             instruction->opcode = TRYTR_IR_HEADING;
@@ -149,6 +203,10 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
             instruction->opcode = TRYTR_IR_RECT;
             if (!rect_operands(node, instruction)) return TRYTR_STATUS_INVALID_DOCUMENT;
             break;
+        case TRYTR_NODE_ROUNDRECT:
+            instruction->opcode = TRYTR_IR_ROUNDRECT;
+            if (!roundrect_operands(node, instruction)) return TRYTR_STATUS_INVALID_DOCUMENT;
+            break;
         case TRYTR_NODE_LINE:
             instruction->opcode = TRYTR_IR_LINE;
             if (!line_operands(node, instruction)) return TRYTR_STATUS_INVALID_DOCUMENT;
@@ -160,6 +218,32 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
         case TRYTR_NODE_ELLIPSE:
             instruction->opcode = TRYTR_IR_ELLIPSE;
             if (!ellipse_operands(node, instruction)) return TRYTR_STATUS_INVALID_DOCUMENT;
+            break;
+        case TRYTR_NODE_POLYGON:
+            instruction->opcode = TRYTR_IR_POLYGON;
+            instruction->operands.polygon.points = node->text;
+            instruction->operands.polygon.length = node->text_length;
+            instruction->operands.polygon.point_count = node->polygon_point_count;
+            instruction->operands.polygon.min_x = node->polygon_min_x;
+            instruction->operands.polygon.min_y = node->polygon_min_y;
+            instruction->operands.polygon.max_x = node->polygon_max_x;
+            instruction->operands.polygon.max_y = node->polygon_max_y;
+            break;
+        case TRYTR_NODE_PLOT:
+            instruction->opcode = TRYTR_IR_PLOT;
+            if (!shape_property(node, "x", &instruction->operands.plot.x) ||
+                !shape_property(node, "y", &instruction->operands.plot.y) ||
+                !shape_property(node, "width", &instruction->operands.plot.width) ||
+                !shape_property(node, "height", &instruction->operands.plot.height)) {
+                return TRYTR_STATUS_INVALID_DOCUMENT;
+            }
+            instruction->operands.plot.points = node->text;
+            instruction->operands.plot.length = node->text_length;
+            instruction->operands.plot.point_count = node->plot_point_count;
+            instruction->operands.plot.min_x = node->plot_min_x;
+            instruction->operands.plot.min_y = node->plot_min_y;
+            instruction->operands.plot.max_x = node->plot_max_x;
+            instruction->operands.plot.max_y = node->plot_max_y;
             break;
         case TRYTR_NODE_DOCUMENT:
         case TRYTR_NODE_GROUP:

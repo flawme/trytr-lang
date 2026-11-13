@@ -1,6 +1,7 @@
 #include "trytr/document.h"
 #include "trytr/trytr.h"
 #include "svg_render.h"
+#include "text_render.h"
 
 #include <stdio.h>
 #include <inttypes.h>
@@ -11,7 +12,7 @@
 
 static void print_usage(FILE *stream)
 {
-    fputs("usage: trytr [--version] [--help] [--dump-ir|--render-svg] [FILE|-]\n", stream);
+    fputs("usage: trytr [--version] [--help] [--dump-ir|--render-svg|--render-text] [FILE|-]\n", stream);
 }
 
 static bool ignore_element(const TrytrDocumentElement *element, void *user_data)
@@ -34,6 +35,9 @@ static const char *element_kind_name(TrytrElementKind kind)
         case TRYTR_ELEMENT_GROUP_BEGIN: return "group-begin";
         case TRYTR_ELEMENT_GROUP_END: return "group-end";
         case TRYTR_ELEMENT_ELLIPSE: return "ellipse";
+        case TRYTR_ELEMENT_POLYGON: return "polygon";
+        case TRYTR_ELEMENT_ROUNDRECT: return "roundrect";
+        case TRYTR_ELEMENT_PLOT: return "plot";
     }
     return "unknown";
 }
@@ -75,6 +79,11 @@ static bool print_ir_element(const TrytrDocumentElement *element, void *user_dat
     if (element->kind == TRYTR_ELEMENT_RECT) {
         if (printf(" x=%" PRId64 " y=%" PRId64 " width=%" PRId64 " height=%" PRId64,
                    element->x, element->y, element->width, element->height) < 0) return false;
+    } else if (element->kind == TRYTR_ELEMENT_ROUNDRECT) {
+        if (printf(" x=%" PRId64 " y=%" PRId64 " width=%" PRId64
+                   " height=%" PRId64 " radius=%" PRId64,
+                   element->x, element->y, element->width, element->height,
+                   element->radius) < 0) return false;
     } else if (element->kind == TRYTR_ELEMENT_LINE) {
         if (printf(" x1=%" PRId64 " y1=%" PRId64 " x2=%" PRId64 " y2=%" PRId64,
                    element->x, element->y, element->x2, element->y2) < 0) return false;
@@ -86,6 +95,15 @@ static bool print_ir_element(const TrytrDocumentElement *element, void *user_dat
                    element->x, element->y, element->radius_x, element->radius_y) < 0) return false;
     } else if (element->kind == TRYTR_ELEMENT_PATH) {
         if (fputs(" d=", stdout) == EOF ||
+            !print_escaped(element->text, element->text_length)) return false;
+    } else if (element->kind == TRYTR_ELEMENT_POLYGON) {
+        if (fputs(" points=", stdout) == EOF ||
+            !print_escaped(element->text, element->text_length)) return false;
+    } else if (element->kind == TRYTR_ELEMENT_PLOT) {
+        if (printf(" x=%" PRId64 " y=%" PRId64 " width=%" PRId64
+                   " height=%" PRId64 " points=%zu data=",
+                   element->x, element->y, element->width, element->height,
+                   element->point_count) < 0 ||
             !print_escaped(element->text, element->text_length)) return false;
     } else if (element->kind == TRYTR_ELEMENT_GROUP_BEGIN) {
         if (printf(" translate_x=%" PRId64 " translate_y=%" PRId64,
@@ -145,7 +163,7 @@ static int read_source(FILE *stream, char **out_source, size_t *out_length)
 }
 
 static int process_source(const char *name, const char *source, size_t length,
-                          bool dump_ir, bool render_svg)
+                          bool dump_ir, bool render_svg, bool render_text)
 {
     TrytrDocument *document = NULL;
     TrytrStatus status = trytr_document_parse(source, length, &document);
@@ -172,15 +190,17 @@ static int process_source(const char *name, const char *source, size_t length,
     }
 
     if (status == TRYTR_STATUS_OK) {
-        if (render_svg) {
-            char *svg = NULL;
-            size_t svg_length = 0u;
-            status = trytr_svg_render(document, &svg, &svg_length);
+        if (render_svg || render_text) {
+            char *output = NULL;
+            size_t output_length = 0u;
+            status = render_svg
+                ? trytr_svg_render(document, &output, &output_length)
+                : trytr_text_render(document, &output, &output_length);
             if (status == TRYTR_STATUS_OK &&
-                fwrite(svg, 1u, svg_length, stdout) != svg_length) {
+                fwrite(output, 1u, output_length, stdout) != output_length) {
                 status = TRYTR_STATUS_EXECUTION_FAILED;
             }
-            free(svg);
+            free(output);
             if (status != TRYTR_STATUS_OK) {
                 fprintf(stderr, "trytr: render failed: %s\n", trytr_status_string(status));
             }
@@ -214,20 +234,27 @@ int main(int argc, char **argv)
 
     bool dump_ir = false;
     bool render_svg = false;
+    bool render_text = false;
     const char *input_path = NULL;
     for (int index = 1; index < argc; ++index) {
         if (strcmp(argv[index], "--dump-ir") == 0) {
-            if (dump_ir || render_svg) {
+            if (dump_ir || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 return 2;
             }
             dump_ir = true;
         } else if (strcmp(argv[index], "--render-svg") == 0) {
-            if (dump_ir || render_svg) {
+            if (dump_ir || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 return 2;
             }
             render_svg = true;
+        } else if (strcmp(argv[index], "--render-text") == 0) {
+            if (dump_ir || render_svg || render_text) {
+                fputs("trytr: choose only one output mode\n", stderr);
+                return 2;
+            }
+            render_text = true;
         } else if (argv[index][0] == '-' && argv[index][1] == '-') {
             fprintf(stderr, "trytr: unknown option %s\n", argv[index]);
             print_usage(stderr);
@@ -258,7 +285,7 @@ int main(int argc, char **argv)
     if (stream != stdin) fclose(stream);
     if (result != 0) return result;
 
-    result = process_source(name, source, length, dump_ir, render_svg);
+    result = process_source(name, source, length, dump_ir, render_svg, render_text);
     if (fflush(stdout) != 0) {
         fputs("trytr: failed to write output\n", stderr);
         if (result == 0) result = 2;

@@ -559,9 +559,13 @@ It includes a general-purpose vector drawing model.
 
 The primitive drawing system must be sufficiently expressive to construct arbitrary 2D illustrations.
 
-The initial prototype draws rectangles, lines, circles, and ellipses. Ellipses
-use a center and non-negative horizontal and vertical radii, each bounded by
-the coordinate limit.
+The initial prototype draws rectangles, rounded rectangles, lines, circles,
+ellipses, and polygons.
+Ellipses use a center and non-negative horizontal and vertical radii, each
+bounded by the coordinate limit. Polygons take at least three integer
+coordinate pairs and are limited to 2,048 points and 64 KiB of point data.
+Rounded rectangles use a non-negative corner radius no greater than half their
+width or height.
 
 The initial path syntax accepts uppercase `M`, `L`, `H`, `V`, `C`, `Q`, and
 `Z` commands with signed integer coordinates. Each command takes one argument
@@ -1530,12 +1534,31 @@ Goal: render general 2D documents.
 ### Prototype checkpoint
 
 The current prototype has a first SVG backend exposed by `trytr --render-svg`.
-It draws rectangles, lines, circles, ellipses, and the initial path command subset; it
-renders heading, text, and math blocks as escaped SVG text. It supports nested
-groups with integer translations and computes the SVG viewBox from transformed
-geometry. Text uses a simple source-order flow with fixed font sizes and line
-spacing; math is displayed as plain text. The generated SVG is bounded to
-8 MiB. Clipping, shaped text, and a formal layout model remain future work.
+It draws rectangles, rounded rectangles, lines, circles, ellipses, polygons,
+numeric data plots, and the initial path command subset. `@plot` maps numeric
+x/y pairs into a chart rectangle, adds left and bottom axes, and interpolates
+a smooth cubic curve through points in source order. It renders heading, text, and math blocks
+as escaped SVG text. Math blocks support basic `_` subscripts, `^` superscripts,
+`\sqrt{...}` radicals, and inline `\frac{...}{...}` fractions, but have no
+equation evaluation or general TeX parser. It supports nested groups with
+integer translations and computes the SVG viewBox from transformed geometry.
+Rectangles, rounded rectangles, circles, ellipses, paths, and polygons accept
+RGB fill and stroke colors and stroke widths; lines accept stroke colors and
+widths. Stroke widths are limited to 32 document units so the renderer's
+default bounds padding contains the full stroke. Text blocks support bounded
+font sizes, RGB color, and left, center, or right alignment. Text and heading
+blocks can wrap at word boundaries to an optional width. Text uses a simple
+source-order flow with fixed line spacing; its conservative width estimate
+counts Unicode scalars without shaping them.
+Documents may set a fixed canvas width and height, in which case the SVG uses
+the `(0, 0)` origin and clips content outside that viewport. Without those
+options, the SVG bounds itself around rendered geometry. The generated SVG is
+bounded to 8 MiB. Shaped text and a formal layout model remain future work.
+The `--render-text` backend renders text blocks as plain lines and vector
+outlines on a bounded 2-by-3 subcell grid, using Unicode block sextants for
+plots and lines.
+This lets diagrams and graphs appear directly in chat without SVG or image
+content. The text backend does not preserve color or fill styles.
 
 ## Stage 4 — Layout and typography
 

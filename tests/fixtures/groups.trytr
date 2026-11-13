@@ -1,5 +1,7 @@
 @document(version: 1) {
     @group #translated(12, -4) {
         @rect #box(1, 2, 3, 4)
+        @polygon #triangle{5, 5 20, 5 12, 18}
+        @roundrect #card(24, 6, 20, 14, 7)
     }
 }

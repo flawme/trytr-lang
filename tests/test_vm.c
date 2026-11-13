@@ -5,7 +5,7 @@
 #include <string.h>
 
 typedef struct VisitorCapture {
-    TrytrDocumentElement elements[8];
+    TrytrDocumentElement elements[12];
     size_t count;
     size_t stop_after;
 } VisitorCapture;
@@ -36,6 +36,7 @@ static bool test_visitor_receives_all_elements_in_source_order(void)
         "@line #edge(5,6,7,8)"
         "@circle #dot(9,10,11)"
         "@ellipse #oval(13,14,15,16)"
+        "@polygon #triangle{1, 2, 3, 4, -5, 6}"
         "@path #curve{M 1 2 C 3 4 5 6 7 8}"
         "}";
     TrytrDocument *document = NULL;
@@ -43,17 +44,17 @@ static bool test_visitor_receives_all_elements_in_source_order(void)
     VisitorCapture capture = {0};
     TEST_ASSERT_INT(TRYTR_STATUS_OK,
                     trytr_document_execute(document, capture_element, &capture));
-    TEST_ASSERT_SIZE(8u, capture.count);
+    TEST_ASSERT_SIZE(9u, capture.count);
 
     static const TrytrElementKind kinds[] = {
         TRYTR_ELEMENT_HEADING, TRYTR_ELEMENT_TEXT, TRYTR_ELEMENT_MATH,
         TRYTR_ELEMENT_RECT, TRYTR_ELEMENT_LINE, TRYTR_ELEMENT_CIRCLE,
-        TRYTR_ELEMENT_ELLIPSE, TRYTR_ELEMENT_PATH
+        TRYTR_ELEMENT_ELLIPSE, TRYTR_ELEMENT_POLYGON, TRYTR_ELEMENT_PATH
     };
     static const char *const ids[] = {
-        "head", "copy", "equation", "box", "edge", "dot", "oval", "curve"
+        "head", "copy", "equation", "box", "edge", "dot", "oval", "triangle", "curve"
     };
-    for (size_t index = 0u; index < 8u; ++index) {
+    for (size_t index = 0u; index < 9u; ++index) {
         TEST_ASSERT_INT(kinds[index], capture.elements[index].kind);
         TEST_ASSERT_SIZE(index, capture.elements[index].element_index);
         TEST_ASSERT_STRING(ids[index], capture.elements[index].id);
@@ -75,11 +76,16 @@ static bool test_visitor_receives_all_elements_in_source_order(void)
     TEST_ASSERT_INT(14, capture.elements[6].y);
     TEST_ASSERT_INT(15, capture.elements[6].radius_x);
     TEST_ASSERT_INT(16, capture.elements[6].radius_y);
-    TEST_ASSERT_STRING("M 1 2 C 3 4 5 6 7 8", capture.elements[7].text);
-    TEST_ASSERT_INT(1, capture.elements[7].min_x);
+    TEST_ASSERT_STRING("1, 2, 3, 4, -5, 6", capture.elements[7].text);
+    TEST_ASSERT_INT(-5, capture.elements[7].min_x);
     TEST_ASSERT_INT(2, capture.elements[7].min_y);
-    TEST_ASSERT_INT(7, capture.elements[7].max_x);
-    TEST_ASSERT_INT(8, capture.elements[7].max_y);
+    TEST_ASSERT_INT(3, capture.elements[7].max_x);
+    TEST_ASSERT_INT(6, capture.elements[7].max_y);
+    TEST_ASSERT_STRING("M 1 2 C 3 4 5 6 7 8", capture.elements[8].text);
+    TEST_ASSERT_INT(1, capture.elements[8].min_x);
+    TEST_ASSERT_INT(2, capture.elements[8].min_y);
+    TEST_ASSERT_INT(7, capture.elements[8].max_x);
+    TEST_ASSERT_INT(8, capture.elements[8].max_y);
     trytr_document_destroy(document);
     return true;
 }

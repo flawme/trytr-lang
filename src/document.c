@@ -81,6 +81,25 @@ TrytrStatus trytr_document_validate(TrytrDocument *document)
     return document_status(document);
 }
 
+bool trytr_document_get_canvas_size(
+    const TrytrDocument *document,
+    int64_t *out_width,
+    int64_t *out_height
+)
+{
+    if (out_width != NULL) *out_width = 0;
+    if (out_height != NULL) *out_height = 0;
+    if (document == NULL || out_width == NULL || out_height == NULL ||
+        document->output.root == NULL ||
+        !document->output.root->has_canvas_width ||
+        !document->output.root->has_canvas_height) {
+        return false;
+    }
+    *out_width = document->output.root->canvas_width;
+    *out_height = document->output.root->canvas_height;
+    return true;
+}
+
 TrytrStatus trytr_document_execute(
     TrytrDocument *document,
     TrytrElementVisitor visitor,
