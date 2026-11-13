@@ -1,7 +1,7 @@
-@document(version: 1, width: 240, height: 140) {
+@document(version: 1, width: 720, height: 420) {
     @heading #title {Monthly revenue}
     @text #caption {A numeric data series drawn directly in the document.}
-    @plot #revenue(24, 42, 192, 78) {
+    @plot #revenue(56, 112, 640, 270) (stroke:rgb(37,99,235), stroke-width:3, grid:true, markers:true) {
         0, 12  1, 18  2, 25  3, 22  4, 35  5, 48
     }
 }

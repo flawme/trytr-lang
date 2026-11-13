@@ -74,7 +74,11 @@ TrytrStatus trytr_vm_execute(
             .has_text_alignment = instruction->has_text_alignment,
             .text_alignment = (TrytrTextAlignment)instruction->text_alignment,
             .has_text_width = instruction->has_text_width,
-            .text_width = instruction->text_width
+            .text_width = instruction->text_width,
+            .plot_grid = instruction->opcode == TRYTR_IR_PLOT
+                ? instruction->operands.plot.grid : false,
+            .plot_markers = instruction->opcode == TRYTR_IR_PLOT
+                ? instruction->operands.plot.markers : false
         };
         switch (instruction->opcode) {
             case TRYTR_IR_HEADING:

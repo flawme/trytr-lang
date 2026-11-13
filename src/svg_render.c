@@ -433,10 +433,10 @@ static bool measure_element(const TrytrDocumentElement *element, void *user_data
             return true;
         case TRYTR_ELEMENT_PLOT:
             include_bounds(state,
-                           element->x + state->group_translate_x,
+                           element->x - 48 + state->group_translate_x,
                            element->y + state->group_translate_y,
-                           element->x + element->width + state->group_translate_x,
-                           element->y + element->height + state->group_translate_y);
+                           element->x + element->width + 48 + state->group_translate_x,
+                           element->y + element->height + 24 + state->group_translate_y);
             return true;
         default:
             return layout_text(state, element);
@@ -746,25 +746,122 @@ static TrytrMathPoint map_plot_point(const TrytrDocumentElement *element,
     };
 }
 
+static int plot_tick_divisions(int64_t pixels, int64_t data_span)
+{
+    if (data_span == 0) return 0;
+    int maximum = pixels >= 480 ? 8 : pixels >= 320 ? 7 : pixels >= 220 ? 6 :
+                  pixels >= 160 ? 5 : pixels >= 110 ? 4 : pixels >= 72 ? 3 :
+                  pixels >= 40 ? 2 : 1;
+    for (int divisions = maximum; divisions >= 2; --divisions) {
+        if (data_span % divisions == 0) return divisions;
+    }
+    return maximum;
+}
+
+static void format_plot_tick(double value, char *buffer, size_t capacity)
+{
+    const int64_t integer = (int64_t)value;
+    if ((double)integer == value) {
+        (void)snprintf(buffer, capacity, "%" PRId64, integer);
+        return;
+    }
+    (void)snprintf(buffer, capacity, "%.3f", value);
+    size_t length = strlen(buffer);
+    while (length != 0u && buffer[length - 1u] == '0') buffer[--length] = '\0';
+    if (length != 0u && buffer[length - 1u] == '.') buffer[length - 1u] = '\0';
+}
+
+static bool render_plot_ticks(SvgBuffer *output,
+                              const TrytrDocumentElement *element)
+{
+    const double x_span = (double)(element->max_x - element->min_x);
+    const double y_span = (double)(element->max_y - element->min_y);
+    const int x_divisions = plot_tick_divisions(
+        element->width, element->max_x - element->min_x);
+    const int y_divisions = plot_tick_divisions(
+        element->height, element->max_y - element->min_y);
+    const double bottom = (double)(element->y + element->height);
+    const int x_tick_count = x_span == 0.0 ? 1 : x_divisions + 1;
+    const int y_tick_count = y_span == 0.0 ? 1 : y_divisions + 1;
+    for (int division = 0; division < x_tick_count; ++division) {
+        const double fraction = x_span == 0.0 ? 0.5 :
+            (double)division / (double)x_divisions;
+        const double x = (double)element->x + (double)element->width * fraction;
+        char label[48];
+        format_plot_tick((double)element->min_x + x_span * fraction,
+                         label, sizeof(label));
+        if (!buffer_format(output,
+                           "<line class=\"tick\" x1=\"%.3f\" y1=\"%.3f\""
+                           " x2=\"%.3f\" y2=\"%.3f\" stroke=\"#888\"/>\n"
+                           "<text class=\"x-tick\" x=\"%.3f\" y=\"%.3f\""
+                           " text-anchor=\"middle\" font-family=\"sans-serif\""
+                           " font-size=\"11\" fill=\"#667085\">%s</text>\n",
+                           x, bottom, x, bottom + 4.0, x, bottom + 17.0, label)) {
+            return false;
+        }
+    }
+    for (int division = 0; division < y_tick_count; ++division) {
+        const double fraction = y_span == 0.0 ? 0.5 :
+            (double)division / (double)y_divisions;
+        const double y = bottom - (double)element->height * fraction;
+        char label[48];
+        format_plot_tick((double)element->min_y + y_span * fraction,
+                         label, sizeof(label));
+        if (!buffer_format(output,
+                           "<line class=\"tick\" x1=\"%.3f\" y1=\"%.3f\""
+                           " x2=\"%.3f\" y2=\"%.3f\" stroke=\"#888\"/>\n"
+                           "<text class=\"y-tick\" x=\"%.3f\" y=\"%.3f\""
+                           " text-anchor=\"end\" font-family=\"sans-serif\""
+                           " font-size=\"11\" fill=\"#667085\">%s</text>\n",
+                           (double)element->x - 4.0, y,
+                           (double)element->x, y,
+                           (double)element->x - 7.0, y + 4.0, label)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool render_plot(SvgState *state, const TrytrDocumentElement *element)
 {
-    static const char curve_suffix[] =
-        "\" fill=\"none\" stroke=\"#222\" stroke-width=\"2\"/>\n";
     SvgBuffer *output = &state->output;
     if (!buffer_append(output, "<g", 2u)) return false;
     if (element->id != NULL && !buffer_format(output, " id=\"%s\"", element->id)) return false;
     if (!buffer_append(output, ">\n", 2u)) return false;
     const int64_t right = element->x + element->width;
     const int64_t bottom = element->y + element->height;
+    if (element->plot_grid) {
+        const int x_divisions = plot_tick_divisions(
+            element->width, element->max_x - element->min_x);
+        const int y_divisions = plot_tick_divisions(
+            element->height, element->max_y - element->min_y);
+        for (int division = 1; division < x_divisions; ++division) {
+            const int64_t x = element->x + element->width * division / x_divisions;
+            if (!buffer_format(output,
+                               "<line class=\"grid\" x1=\"%" PRId64 "\" y1=\"%" PRId64
+                               "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
+                               "\" stroke=\"#e5e7eb\" stroke-width=\"1\"/>\n",
+                               x, element->y, x, bottom)) return false;
+        }
+        for (int division = 1; division < y_divisions; ++division) {
+            const int64_t y = element->y + element->height * division / y_divisions;
+            if (!buffer_format(output,
+                               "<line class=\"grid\" x1=\"%" PRId64 "\" y1=\"%" PRId64
+                               "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
+                               "\" stroke=\"#e5e7eb\" stroke-width=\"1\"/>\n",
+                               element->x, y, right, y)) return false;
+        }
+    }
     if (!buffer_format(output,
-                       "<line x1=\"%" PRId64 "\" y1=\"%" PRId64
+                       "<line class=\"axis\" x1=\"%" PRId64 "\" y1=\"%" PRId64
                        "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
                        "\" stroke=\"#888\" stroke-width=\"1\"/>\n"
-                       "<line x1=\"%" PRId64 "\" y1=\"%" PRId64
+                       "<line class=\"axis\" x1=\"%" PRId64 "\" y1=\"%" PRId64
                        "\" x2=\"%" PRId64 "\" y2=\"%" PRId64
                        "\" stroke=\"#888\" stroke-width=\"1\"/>\n",
                        element->x, element->y, element->x, bottom,
                        element->x, bottom, right, bottom)) return false;
+    if (!render_plot_ticks(output, element)) return false;
     TrytrMathPoint points[TRYTR_DEFAULT_PLOT_POINT_LIMIT];
     TrytrMathCubic segments[TRYTR_DEFAULT_PLOT_POINT_LIMIT - 1u];
     const char *cursor = element->text;
@@ -780,7 +877,12 @@ static bool render_plot(SvgState *state, const TrytrDocumentElement *element)
     }
     if (point_count != element->point_count || point_count < 2u) return false;
     if (!trytr_math_build_curve(points, point_count, segments)) return false;
-    if (!buffer_format(output, "<path d=\"M %.3f %.3f",
+    const uint32_t curve_color = element->has_stroke
+        ? element->stroke_rgb : UINT32_C(0x2563eb);
+    const int64_t curve_width = element->has_stroke_width
+        ? element->stroke_width : 2;
+    if (!buffer_format(output,
+                       "<path d=\"M %.3f %.3f",
                        points[0].x, points[0].y)) return false;
     for (size_t index = 0u; index + 1u < point_count; ++index) {
         const TrytrMathCubic *segment = &segments[index];
@@ -790,7 +892,19 @@ static bool render_plot(SvgState *state, const TrytrDocumentElement *element)
                            segment->control2.x, segment->control2.y,
                            segment->end.x, segment->end.y)) return false;
     }
-    if (!buffer_append(output, curve_suffix, sizeof(curve_suffix) - 1u)) return false;
+    if (!buffer_format(output,
+                       "\" fill=\"none\" stroke=\"#%06" PRIx32
+                       "\" stroke-width=\"%" PRId64 "\"/>\n",
+                       curve_color, curve_width)) return false;
+    if (element->plot_markers) {
+        for (size_t index = 0u; index < point_count; ++index) {
+            if (!buffer_format(output,
+                               "<circle class=\"data-point\" cx=\"%.3f\" cy=\"%.3f\""
+                               " r=\"3\" fill=\"#%06" PRIx32
+                               "\" stroke=\"#fff\" stroke-width=\"1.5\"/>\n",
+                               points[index].x, points[index].y, curve_color)) return false;
+        }
+    }
     return buffer_append(output, "</g>\n", 5u);
 }
 

@@ -101,17 +101,19 @@ static bool style_property_index(TrytrNodeKind kind, const char *name,
                                kind == TRYTR_NODE_ELLIPSE ||
                                kind == TRYTR_NODE_PATH ||
                                kind == TRYTR_NODE_POLYGON;
+    const bool supports_stroke = supports_fill || kind == TRYTR_NODE_LINE ||
+                                 kind == TRYTR_NODE_PLOT;
     if (strcmp(name, "fill") == 0 && supports_fill) {
         *out_index = 0u;
         return true;
     }
     if (strcmp(name, "stroke") == 0 &&
-        (supports_fill || kind == TRYTR_NODE_LINE)) {
+        supports_stroke) {
         *out_index = 1u;
         return true;
     }
     if (strcmp(name, "stroke-width") == 0 &&
-        (supports_fill || kind == TRYTR_NODE_LINE)) {
+        supports_stroke) {
         *out_index = 2u;
         return true;
     }
@@ -124,10 +126,28 @@ static void validate_geometry(const TrytrNode *node, TrytrDiagnosticList *diagno
     const char *const *names = geometry_property_names(node->kind, &property_count);
     unsigned int seen = 0;
     unsigned int style_seen = 0;
+    unsigned int plot_option_seen = 0;
     for (const TrytrProperty *property = node->properties;
          property != NULL;
          property = property->next) {
         size_t index;
+        if (node->kind == TRYTR_NODE_PLOT &&
+            (strcmp(property->name, "grid") == 0 ||
+             strcmp(property->name, "markers") == 0)) {
+            const unsigned int option_index =
+                strcmp(property->name, "grid") == 0 ? 0u : 1u;
+            const unsigned int flag = 1u << option_index;
+            if ((plot_option_seen & flag) != 0u) {
+                validation_error(diagnostics, "TRYTR-E-PROPERTY", property->location,
+                                 "duplicate plot option");
+            }
+            plot_option_seen |= flag;
+            if (property->integer_value != 0 && property->integer_value != 1) {
+                validation_error(diagnostics, "TRYTR-E-PLOT-OPTION", property->location,
+                                 "plot grid and markers options must be true or false");
+            }
+            continue;
+        }
         if (strcmp(property->name, "fill") == 0 ||
             strcmp(property->name, "stroke") == 0 ||
             strcmp(property->name, "stroke-width") == 0) {

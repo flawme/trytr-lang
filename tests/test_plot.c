@@ -34,6 +34,11 @@ static bool diagnostic_present(const TrytrDocument *document, const char *code)
 typedef struct PlotCapture {
     bool seen;
     bool matches;
+    bool grid;
+    bool markers;
+    bool has_stroke;
+    uint32_t stroke_rgb;
+    int64_t stroke_width;
 } PlotCapture;
 
 static bool capture_plot(const TrytrDocumentElement *element, void *user_data)
@@ -41,6 +46,11 @@ static bool capture_plot(const TrytrDocumentElement *element, void *user_data)
     PlotCapture *capture = user_data;
     if (element->kind == TRYTR_ELEMENT_PLOT) {
         capture->seen = true;
+        capture->grid = element->plot_grid;
+        capture->markers = element->plot_markers;
+        capture->has_stroke = element->has_stroke;
+        capture->stroke_rgb = element->stroke_rgb;
+        capture->stroke_width = element->stroke_width;
         capture->matches = element->point_count == 3u &&
             element->min_x == 0 && element->max_x == 10 &&
             element->min_y == 0 && element->max_y == 10 &&
@@ -129,6 +139,7 @@ static bool test_plot_parses_and_renders_in_svg_and_chat_text(void)
     TEST_ASSERT_INT(TRYTR_STATUS_OK,
                     trytr_document_execute(document, capture_plot, &capture));
     TEST_ASSERT(capture.seen && capture.matches);
+    TEST_ASSERT(capture.grid && capture.markers);
 
     char *svg = NULL;
     size_t svg_length = 0u;
@@ -136,6 +147,9 @@ static bool test_plot_parses_and_renders_in_svg_and_chat_text(void)
                     trytr_svg_render(document, &svg, &svg_length));
     TEST_ASSERT(contains(svg, "<g id=\"sales\">"));
     TEST_ASSERT(contains(svg, "x1=\"10\" y1=\"10\" x2=\"10\" y2=\"70\""));
+    TEST_ASSERT(contains(svg, "class=\"x-tick\""));
+    TEST_ASSERT(contains(svg, "class=\"y-tick\""));
+    TEST_ASSERT(contains(svg, ">10</text>"));
     TEST_ASSERT(contains(svg, "<path d=\"M 10.000 70.000 C "));
     TEST_ASSERT(!contains(svg, "<polyline"));
     TEST_ASSERT_SIZE(strlen(svg), svg_length);
@@ -154,6 +168,37 @@ static bool test_plot_parses_and_renders_in_svg_and_chat_text(void)
     return true;
 }
 
+static bool test_plot_options_control_grid_markers_and_stroke(void)
+{
+    static const char source[] =
+        "@document(version:1,width:120,height:90){"
+        "@plot #sales(10,10,100,60)(stroke:rgb(12,34,56),stroke-width:4,"
+        "grid:false,markers:false){0,0 5,10 10,5}}";
+    TrytrDocument *document = NULL;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_parse(source, sizeof(source) - 1u, &document));
+    PlotCapture capture = {0};
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_execute(document, capture_plot, &capture));
+    TEST_ASSERT(capture.seen);
+    TEST_ASSERT(!capture.grid && !capture.markers);
+    TEST_ASSERT(capture.has_stroke);
+    TEST_ASSERT_INT(0x0c2238, capture.stroke_rgb);
+    TEST_ASSERT_INT(4, capture.stroke_width);
+
+    char *svg = NULL;
+    size_t svg_length = 0u;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_svg_render(document, &svg, &svg_length));
+    TEST_ASSERT(contains(svg, "stroke=\"#0c2238\" stroke-width=\"4\""));
+    TEST_ASSERT(!contains(svg, "class=\"grid\""));
+    TEST_ASSERT(!contains(svg, "class=\"data-point\""));
+    TEST_ASSERT_SIZE(strlen(svg), svg_length);
+    free(svg);
+    trytr_document_destroy(document);
+    return true;
+}
+
 static bool test_plot_bounds_must_be_positive(void)
 {
     static const char source[] = "@document(version:1){@plot(0,0,0,12){0,0 1,1}}";
@@ -163,6 +208,20 @@ static bool test_plot_bounds_must_be_positive(void)
     TEST_ASSERT_INT(TRYTR_STATUS_INVALID_DOCUMENT,
                     trytr_document_validate(document));
     TEST_ASSERT(diagnostic_present(document, "TRYTR-E-PLOT-SIZE"));
+    trytr_document_destroy(document);
+    return true;
+}
+
+static bool test_plot_boolean_options_reject_other_values(void)
+{
+    static const char source[] =
+        "@document(version:1){@plot(0,0,10,10)(grid:2){0,0 1,1}}";
+    TrytrDocument *document = NULL;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_parse(source, sizeof(source) - 1u, &document));
+    TEST_ASSERT_INT(TRYTR_STATUS_INVALID_DOCUMENT,
+                    trytr_document_validate(document));
+    TEST_ASSERT(diagnostic_present(document, "TRYTR-E-PLOT-OPTION"));
     trytr_document_destroy(document);
     return true;
 }
@@ -214,7 +273,9 @@ static const TrytrTestCase tests[] = {
     {"plot data errors", test_plot_data_rejects_bad_pairs_and_out_of_range_values},
     {"plot data limits", test_plot_data_limits},
     {"plot SVG and text rendering", test_plot_parses_and_renders_in_svg_and_chat_text},
+    {"plot visual options", test_plot_options_control_grid_markers_and_stroke},
     {"positive plot size", test_plot_bounds_must_be_positive},
+    {"plot boolean options", test_plot_boolean_options_reject_other_values},
     {"plot parser diagnostics", test_plot_parser_reports_data_errors},
     {"constant plot axis", test_constant_plot_axis_is_centered}
 };

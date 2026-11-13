@@ -18,6 +18,13 @@ static bool shape_property(const TrytrNode *node, const char *name, int64_t *val
     return false;
 }
 
+static bool shape_boolean_property(const TrytrNode *node, const char *name,
+                                   bool default_value)
+{
+    int64_t value = 0;
+    return shape_property(node, name, &value) ? value != 0 : default_value;
+}
+
 static bool rect_operands(const TrytrNode *node, TrytrIRInstruction *instruction)
 {
     return shape_property(node, "x", &instruction->operands.rect.x) &&
@@ -244,6 +251,8 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
             instruction->operands.plot.min_y = node->plot_min_y;
             instruction->operands.plot.max_x = node->plot_max_x;
             instruction->operands.plot.max_y = node->plot_max_y;
+            instruction->operands.plot.grid = shape_boolean_property(node, "grid", true);
+            instruction->operands.plot.markers = shape_boolean_property(node, "markers", true);
             break;
         case TRYTR_NODE_DOCUMENT:
         case TRYTR_NODE_GROUP:

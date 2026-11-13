@@ -1,9 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" width="240" height="140" viewBox="0 0 240 140" overflow="hidden"><title>trytr document</title>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" width="720" height="420" viewBox="0 0 720 420" overflow="hidden"><title>trytr document</title>
 <text x="16" y="44" font-family="sans-serif" font-size="28" font-weight="700" font-style="normal" id="title"><tspan x="16" dy="0">Monthly revenue</tspan></text>
 <text x="16" y="76" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="caption"><tspan x="16" dy="0">A numeric data series drawn directly in the document.</tspan></text>
 <g id="revenue">
-<line x1="24" y1="42" x2="24" y2="120" stroke="#888" stroke-width="1"/>
-<line x1="24" y1="120" x2="216" y2="120" stroke="#888" stroke-width="1"/>
-<path d="M 24.000 120.000 C 36.800 116.028 49.600 111.667 62.400 107.000 C 75.200 102.333 88.000 91.833 100.800 91.833 C 113.600 91.833 126.400 98.333 139.200 98.333 C 152.000 98.333 164.800 79.556 177.600 70.167 C 190.400 60.778 203.200 51.389 216.000 42.000" fill="none" stroke="#222" stroke-width="2"/>
+<line class="grid" x1="184" y1="112" x2="184" y2="382" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="312" y1="112" x2="312" y2="382" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="440" y1="112" x2="440" y2="382" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="568" y1="112" x2="568" y2="382" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="157" x2="696" y2="157" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="202" x2="696" y2="202" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="247" x2="696" y2="247" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="292" x2="696" y2="292" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="337" x2="696" y2="337" stroke="#e5e7eb" stroke-width="1"/>
+<line class="axis" x1="56" y1="112" x2="56" y2="382" stroke="#888" stroke-width="1"/>
+<line class="axis" x1="56" y1="382" x2="696" y2="382" stroke="#888" stroke-width="1"/>
+<line class="tick" x1="56.000" y1="382.000" x2="56.000" y2="386.000" stroke="#888"/>
+<text class="x-tick" x="56.000" y="399.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">0</text>
+<line class="tick" x1="184.000" y1="382.000" x2="184.000" y2="386.000" stroke="#888"/>
+<text class="x-tick" x="184.000" y="399.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">1</text>
+<line class="tick" x1="312.000" y1="382.000" x2="312.000" y2="386.000" stroke="#888"/>
+<text class="x-tick" x="312.000" y="399.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">2</text>
+<line class="tick" x1="440.000" y1="382.000" x2="440.000" y2="386.000" stroke="#888"/>
+<text class="x-tick" x="440.000" y="399.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">3</text>
+<line class="tick" x1="568.000" y1="382.000" x2="568.000" y2="386.000" stroke="#888"/>
+<text class="x-tick" x="568.000" y="399.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">4</text>
+<line class="tick" x1="696.000" y1="382.000" x2="696.000" y2="386.000" stroke="#888"/>
+<text class="x-tick" x="696.000" y="399.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">5</text>
+<line class="tick" x1="52.000" y1="382.000" x2="56.000" y2="382.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="386.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">12</text>
+<line class="tick" x1="52.000" y1="337.000" x2="56.000" y2="337.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="341.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">18</text>
+<line class="tick" x1="52.000" y1="292.000" x2="56.000" y2="292.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="296.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">24</text>
+<line class="tick" x1="52.000" y1="247.000" x2="56.000" y2="247.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="251.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">30</text>
+<line class="tick" x1="52.000" y1="202.000" x2="56.000" y2="202.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="206.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">36</text>
+<line class="tick" x1="52.000" y1="157.000" x2="56.000" y2="157.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="161.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">42</text>
+<line class="tick" x1="52.000" y1="112.000" x2="56.000" y2="112.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="116.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">48</text>
+<path d="M 56.000 382.000 C 98.667 368.250 141.333 353.154 184.000 337.000 C 226.667 320.846 269.333 284.500 312.000 284.500 C 354.667 284.500 397.333 307.000 440.000 307.000 C 482.667 307.000 525.333 242.000 568.000 209.500 C 610.667 177.000 653.333 144.500 696.000 112.000" fill="none" stroke="#2563eb" stroke-width="3"/>
+<circle class="data-point" cx="56.000" cy="382.000" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="184.000" cy="337.000" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="312.000" cy="284.500" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="440.000" cy="307.000" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="568.000" cy="209.500" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="696.000" cy="112.000" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
 </g>
 </svg>

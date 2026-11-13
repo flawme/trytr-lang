@@ -74,16 +74,31 @@ Shapes take integer expressions. The positional values are:
 | Plot | x, y, width, height plus at least two numeric data pairs | `@plot(20, 30, 200, 100) { 0,10 1,25 2,18 }` |
 
 Plots map the data's numeric x and y ranges into the chart rectangle, draw
-left and bottom axes, and make a smooth cubic curve through points in the
-order written. A constant data axis is centered in the chart. Unlike `@path`, a plot does not require authors
-to calculate drawing coordinates. A plot accepts up to 2,048 pairs; each data
-coordinate uses the standard `-1,000,000` to `1,000,000` range:
+left and bottom axes with readable numeric ticks, light grid lines, and a smooth
+cubic curve through points in the order written. Sample markers make the input
+data visible. A constant data axis is centered in the chart. Unlike `@path`, a plot does not require
+authors to calculate drawing coordinates. A plot accepts up to 2,048 pairs;
+each data coordinate uses the standard `-1,000,000` to `1,000,000` range:
 
 ```trytr
 @plot #sales(20, 30, 200, 100) {
     0, 12  1, 18  2, 25  3, 22  4, 35
 }
 ```
+
+Plot appearance can be adjusted after the chart bounds. Grid lines and sample
+markers are on by default; a series color and line width can be set directly:
+
+```trytr
+@plot #sales(20, 30, 200, 100) (stroke:rgb(37,99,235), stroke-width:3,
+                                 grid:true, markers:true) {
+    0, 12  1, 18  2, 25  3, 22  4, 35
+}
+```
+
+Use `grid:false` or `markers:false` to turn either feature off. Plot colors use
+the same `rgb(red, green, blue)` form as other shapes; width is from 0 through
+32 document units.
 
 You can also use named values, for example:
 

@@ -96,6 +96,8 @@ typedef struct TrytrIRInstruction {
             int64_t y;
             int64_t width;
             int64_t height;
+            bool grid;
+            bool markers;
         } plot;
         struct {
             const char *data;

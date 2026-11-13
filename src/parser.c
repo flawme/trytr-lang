@@ -476,6 +476,13 @@ static void parse_style_options(TrytrParser *parser, TrytrNode *node)
                 skip_positional(parser);
                 return;
             }
+        } else if (node->kind == TRYTR_NODE_PLOT &&
+                   (identifier_is(name, "grid") || identifier_is(name, "markers")) &&
+                   parser->current.kind == TRYTR_TOKEN_IDENTIFIER &&
+                   (identifier_is(parser->current, "true") ||
+                    identifier_is(parser->current, "false"))) {
+            value = identifier_is(parser->current, "true") ? 1 : 0;
+            advance(parser);
         } else if (!parse_expression(parser, 0u, 0u, &value)) {
             skip_positional(parser);
             return;
@@ -929,6 +936,8 @@ static void parse_element(TrytrParser *parser, TrytrNode *root)
                   "expected plot bounds as (x, y, width, height)");
             skip_element(parser);
         }
+        if (parser->aborted) return;
+        parse_style_options(parser, node);
         if (parser->aborted) return;
         parse_plot_element(parser, node, root);
         return;

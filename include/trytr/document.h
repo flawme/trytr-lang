@@ -69,7 +69,9 @@ typedef enum TrytrTextAlignment {
  * Optional fill_rgb and stroke_rgb values are packed as 0xRRGGBB; check their
  * corresponding has_fill and has_stroke flags before reading them.
  * Optional stroke_width is measured in document units and uses
- * has_stroke_width to distinguish an explicit value from the default of 1.
+ * has_stroke_width to distinguish an explicit value from the default of 1
+ * (plots default to 2). Plots set plot_grid and plot_markers to their effective
+ * values; both default to true. These fields are false for non-plot elements.
  * Text elements may set font_size, text_color_rgb, and text_alignment; check
  * each corresponding has_* flag before reading an optional value.
  * Heading and text elements may set text_width as a wrapping width in
@@ -110,6 +112,9 @@ typedef struct TrytrDocumentElement {
     TrytrTextAlignment text_alignment;
     bool has_text_width;
     int64_t text_width;
+    /* Plot controls resolve to true by default; stroke style is optional. */
+    bool plot_grid;
+    bool plot_markers;
 } TrytrDocumentElement;
 
 /* Return false to stop execution; the API then returns EXECUTION_FAILED. */
