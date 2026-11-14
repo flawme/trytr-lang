@@ -9,4 +9,11 @@ TrytrStatus trytr_svg_render(
     size_t *out_length
 );
 
+/* Render vector content while leaving @math elements to a native host renderer. */
+TrytrStatus trytr_svg_render_without_math(
+    TrytrDocument *document,
+    char **out_svg,
+    size_t *out_length
+);
+
 #endif

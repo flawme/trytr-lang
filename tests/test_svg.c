@@ -120,6 +120,29 @@ static bool test_math_scripts_render_as_tspans(void)
     return true;
 }
 
+static bool test_math_can_be_deferred_to_a_native_host_renderer(void)
+{
+    static const char source[] =
+        "@document(version:1){@heading{Title}"
+        "@math #formula{NativeFormulaUnique}"
+        "@text{After equation}@circle #dot(5,5,2)}";
+    TrytrDocument *document = NULL;
+    char *svg = NULL;
+    size_t length = 0u;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_parse(source, sizeof(source) - 1u, &document));
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_svg_render_without_math(document, &svg, &length));
+    TEST_ASSERT_SIZE(strlen(svg), length);
+    TEST_ASSERT(!contains(svg, "NativeFormulaUnique"));
+    TEST_ASSERT(contains(svg, "Title"));
+    TEST_ASSERT(contains(svg, "After equation"));
+    TEST_ASSERT(contains(svg, "<circle id=\"dot\""));
+    free(svg);
+    trytr_document_destroy(document);
+    return true;
+}
+
 static bool test_text_font_size_color_and_alignment(void)
 {
     static const char source[] =
@@ -381,6 +404,7 @@ static const TrytrTestCase tests[] = {
     {"text styling", test_text_font_size_color_and_alignment},
     {"word wrapping", test_text_width_wraps_at_words_without_splitting_long_words},
     {"math scripts", test_math_scripts_render_as_tspans},
+    {"native host math handoff", test_math_can_be_deferred_to_a_native_host_renderer},
     {"bounded math script depth", test_deep_math_scripts_are_bounded},
     {"empty document", test_empty_document_has_minimal_valid_svg},
     {"Unicode text bounds", test_unicode_text_bounds_count_characters_not_bytes},

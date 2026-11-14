@@ -1,0 +1,5 @@
+@document(version: 1) {
+    @heading #title {A compact equation}
+    @text #caption {Trytr keeps the equation structured, then lets the host typeset it.}
+    @math #equation {\frac{a_1 + b_1}{c} = \sqrt{x^2 + y^2}}
+}

@@ -37,11 +37,12 @@ UI_RESOURCE_URI = "ui://trytr/preview-v1"
 UI_RESOURCE = ROOT / "mcp" / "ui" / "preview.html"
 MAX_CACHED_PREVIEWS = 4
 PREVIEW_TTL_SECONDS = 10 * 60
-PREVIEW_CACHE: OrderedDict[str, tuple[float, str]] = OrderedDict()
+PREVIEW_CACHE: OrderedDict[str, tuple[float, tuple[str, str]]] = OrderedDict()
 
 SERVER_INFO = {"name": "trytr-renderer", "version": "0.1.0"}
 SERVER_INSTRUCTIONS = (
-    "Render vector documents written in Trytr. Prefer render_trytr for a smooth, "
+    "Render vector documents written in Trytr. @math expressions are typeset as "
+    "native MathML in the embedded preview. Prefer render_trytr for a smooth, "
     "code-rendered vector preview when the client supports MCP Apps. Use "
     "render_trytr_text as the fallback for clients without MCP Apps; text characters "
     "occupy a discrete grid and cannot show a mathematically continuous curve. "
@@ -62,7 +63,8 @@ TOOLS = [
             "render it as a smooth, scalable vector in the embedded Trytr Preview when "
             "the chat client supports MCP Apps. The final geometry is drawn by Trytr "
             "code after generation, so model token streaming does not create jagged "
-            "intermediate strokes. Clients without MCP Apps receive a text-grid fallback. "
+            "intermediate strokes. @math expressions are typeset as native MathML "
+            "beside the vector preview. Clients without MCP Apps receive a text-grid fallback. "
             "This is a local vector view, not image generation. "
             "Declared @param values appear as controls in MCP Apps previews and can "
             "be overridden with the optional parameters object. Formula plots use "
@@ -127,7 +129,7 @@ TOOLS = [
         "description": (
             "Fallback for chat clients that do not support MCP Apps. Validate Trytr source "
             "and return its text blocks and a character-grid drawing directly in chat. "
-            "When called by an MCP Apps client, open the same code-rendered vector preview "
+            "When called by an MCP Apps client, open the same vector and native-math preview "
             "as render_trytr so the final graph stays smooth. Use this when literal "
             "plain-text output is needed or the client has no embedded preview."
             " Parameter values can be supplied in the optional parameters object."
@@ -189,7 +191,7 @@ APP_TOOLS = [
     {
         "name": "get_trytr_preview",
         "title": "Load rendered Trytr preview",
-        "description": "Load SVG data for a recent successful render into the embedded Trytr Preview.",
+            "description": "Load vector and native MathML data for a recent successful render into the embedded Trytr Preview.",
         "inputSchema": {
             "type": "object",
             "properties": {"previewId": {"type": "string", "maxLength": 64}},
@@ -201,6 +203,7 @@ APP_TOOLS = [
             "properties": {
                 "ok": {"type": "boolean"},
                 "message": {"type": "string"},
+                "mathml": {"type": "string"},
             },
             "required": ["ok", "message"],
             "additionalProperties": False,
@@ -264,7 +267,7 @@ def _tools_for_client(apps_supported: bool) -> list[dict[str, Any]]:
     return tools
 
 
-def _store_preview(svg: str) -> str:
+def _store_preview(svg: str, mathml: str) -> str:
     now = time.monotonic()
     expired = [
         preview_id
@@ -276,7 +279,7 @@ def _store_preview(svg: str) -> str:
     while len(PREVIEW_CACHE) >= MAX_CACHED_PREVIEWS:
         PREVIEW_CACHE.popitem(last=False)
     preview_id = secrets.token_urlsafe(18)
-    PREVIEW_CACHE[preview_id] = (now, svg)
+    PREVIEW_CACHE[preview_id] = (now, (svg, mathml))
     return preview_id
 
 
@@ -294,12 +297,14 @@ def _read_preview(preview_id: str) -> dict[str, Any]:
             },
             "isError": True,
         }
-    _, svg = cached
+    _, preview = cached
+    svg, mathml = preview
     return {
         "content": [{"type": "text", "text": svg}],
         "structuredContent": {
             "ok": True,
             "message": "Trytr preview data loaded.",
+            "mathml": mathml,
         },
         "isError": False,
     }
@@ -429,9 +434,13 @@ def _render_document(
         }
 
     try:
+        render_option = (
+            "--render-text" if render_format == "text" else
+            "--render-svg-no-math" if apps_supported else
+            "--render-svg"
+        )
         completed = subprocess.run(
-            [executable, *override_args,
-             "--render-text" if render_format == "text" else "--render-svg", "-"],
+            [executable, *override_args, render_option, "-"],
             input=source_bytes,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -513,6 +522,63 @@ def _render_document(
         }
 
     svg = completed.stdout.decode("utf-8")
+    mathml = ""
+    if apps_supported:
+        try:
+            math_completed = subprocess.run(
+                [executable, *override_args, "--render-mathml", "-"],
+                input=source_bytes,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=RENDER_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            message = "Trytr math rendering exceeded its 10 second limit."
+            return {
+                "content": [{"type": "text", "text": message}],
+                "structuredContent": {"ok": False, "message": message},
+                "isError": True,
+            }
+        except OSError:
+            message = "The Trytr executable could not render native math."
+            return {
+                "content": [{"type": "text", "text": message}],
+                "structuredContent": {"ok": False, "message": message},
+                "isError": True,
+            }
+        if math_completed.returncode != 0:
+            diagnostic = math_completed.stderr[:MAX_DIAGNOSTIC_BYTES].decode(
+                "utf-8", errors="replace"
+            ).strip()
+            message = diagnostic or "Trytr could not render the document's math expressions."
+            return {
+                "content": [{"type": "text", "text": message}],
+                "structuredContent": {"ok": False, "message": message},
+                "isError": True,
+            }
+        if len(math_completed.stdout) > MAX_OUTPUT_BYTES:
+            message = "Trytr MathML exceeds the 2 MiB MCP content limit."
+            return {
+                "content": [{"type": "text", "text": message}],
+                "structuredContent": {"ok": False, "message": message},
+                "isError": True,
+            }
+        try:
+            rendered_mathml = math_completed.stdout.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            rendered_mathml = None
+        if rendered_mathml is None or (rendered_mathml and (
+            not rendered_mathml.startswith('<math xmlns="http://www.w3.org/1998/Math/MathML"')
+            or not rendered_mathml.endswith("</math>")
+        )):
+            message = "Trytr returned invalid MathML."
+            return {
+                "content": [{"type": "text", "text": message}],
+                "structuredContent": {"ok": False, "message": message},
+                "isError": True,
+            }
+        mathml = rendered_mathml
     structured_content: dict[str, Any] = {
         "ok": True,
         "message": "Trytr document rendered successfully.",
@@ -520,7 +586,7 @@ def _render_document(
     }
     content_text = "Trytr document rendered successfully."
     if apps_supported:
-        preview_id = _store_preview(svg)
+        preview_id = _store_preview(svg, mathml)
         structured_content["previewId"] = preview_id
         content_text += f" Preview ID: {preview_id}"
     return {

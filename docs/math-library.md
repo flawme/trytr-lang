@@ -13,6 +13,12 @@ source file:
 | 2 by 2 linear maps | `include/trytr/math/matrix2.h` | `src/math/matrix2.c` | row-major four scalars |
 | 2D affine transforms | `include/trytr/math/affine2.h` | `src/math/affine2.c` | linear map plus translation |
 | Curves | `include/trytr/math/curve.h` | `src/math/curve_interpolate.c`, `src/math/curve_raster.c` | points and cubic Bézier segments |
+| Math notation | `include/trytr/math/notation.h` | `src/math/notation.c` (document core) | document-owned expression tree with source spans |
+
+The notation tree is part of the document core rather than the standalone
+`trytr_math` library because its nodes share the document's bounded arena and
+are valid for exactly the lifetime of the parsed document. See the
+[notation API notes](math-notation.md) for the currently recognized structure.
 
 The modules are typed by meaning, not just storage. A 2D vector is isomorphic
 to the complex value `x + yi`, but the public API keeps vector dot and cross

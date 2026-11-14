@@ -1624,11 +1624,15 @@ The current prototype has a first SVG backend exposed by `trytr --render-svg`.
 It draws rectangles, rounded rectangles, lines, circles, ellipses, polygons,
 numeric data plots, and the initial path command subset. `@plot` maps numeric
 x/y pairs into a chart rectangle, adds left and bottom axes, and interpolates
-a smooth cubic curve through points in source order. It renders heading, text, and math blocks
-as escaped SVG text. Math blocks support basic `_` subscripts, `^` superscripts,
-`\sqrt{...}` radicals, and inline `\frac{...}{...}` fractions, but have no
-equation evaluation or general TeX parser. It supports nested groups with
-integer translations and computes the SVG viewBox from transformed geometry.
+a smooth cubic curve through points in source order. The SVG backend emits
+heading and text blocks as escaped text, then uses a small source-string
+formatter for fractions, roots, and scripts in math blocks. The separate
+`--render-mathml` backend maps the bounded notation tree to MathML Core for
+fractions, roots, scripts, common operators, relations, and selected Greek
+commands. `@math` remains notation rather than an evaluation language, and the
+parser does not implement general TeX. Nested groups support integer
+translations, and the SVG backend computes its viewBox from transformed
+geometry.
 Rectangles, rounded rectangles, circles, ellipses, paths, and polygons accept
 RGB fill and stroke colors and stroke widths; lines accept stroke colors and
 widths. Stroke widths are limited to 32 document units so the renderer's
@@ -1647,17 +1651,24 @@ plots and lines.
 This lets diagrams and graphs appear directly in chat without SVG or image
 content. The text backend does not preserve color or fill styles.
 
-This checkpoint is not the complete product model. The current prototype now
-supports bounded integer parameters and references in integer expressions,
-text and math blocks, and numeric plot coordinates. The C API and CLI can parse the same
-document with a new parameter value, so linked content changes together.
-Parameter changes still require reparsing the full document; the prototype has
-no live host controls, incremental dependency updates, equation evaluation, or
-backend-neutral control events. Those remain necessary for interactive
-explanations such as a developer-approved slider that updates a plotted
-function and its accompanying math together. The MCP preview is only one way
-to display today's output; it does not constrain the language to chat, SVG, or
-graphs.
+The current prototype supports bounded integer parameters and references in
+integer expressions, text and math blocks, `@expr`, and numeric or formula plot
+coordinates. The C API and CLI can parse the same document with new parameter
+values. The MCP Apps preview exposes these parameters as controls and rerenders
+the document when they change. Each update still reparses the full document;
+incremental dependency updates, typed complex or vector values in document
+expressions, and backend-neutral control events remain planned work. The MCP
+preview is one host adapter for the language and leaves later renderers open.
+
+Each `@math` block and formatted `@expr` result also has a bounded notation
+tree exposed to document visitors. It identifies numbers, names, groups,
+fractions, roots, scripts, unary and binary operators, and relations while
+retaining source spans. Unknown commands and formulas beyond the tree-size
+bound remain available through raw text nodes. The MathML backend consumes
+this structure; SVG and text output preserve the original source rendering.
+MCP Apps previews show the MathML panel beside vector content. Broader MathML
+coverage, in-flow math layout, and matching math typography in PDF are future
+steps.
 
 ## Stage 4 — Layout and typography
 

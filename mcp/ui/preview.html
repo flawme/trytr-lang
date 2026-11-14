@@ -48,6 +48,12 @@
       display: none; max-width: 100%; max-height: 560px; overflow: auto;
       border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
     }
+    .math-canvas {
+      display: none; max-width: 100%; max-height: 320px; overflow: auto;
+      padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--surface);
+    }
+    .math-canvas math { font-size: 1.2em; }
     #parameters {
       display: none; gap: 10px; padding: 10px 12px;
       border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
@@ -105,6 +111,7 @@
     <section class="text-canvas" id="text-canvas" aria-label="Rendered Trytr text drawing">
       <pre id="text-output"></pre>
     </section>
+    <section class="math-canvas" id="math-canvas" aria-label="Typeset Trytr mathematics"></section>
     <section id="parameters" aria-label="Interactive document parameters"></section>
     <details>
       <summary>Trytr source</summary>
@@ -119,6 +126,7 @@
       const canvas = document.querySelector(".canvas");
       const textCanvas = document.getElementById("text-canvas");
       const textOutput = document.getElementById("text-output");
+      const mathCanvas = document.getElementById("math-canvas");
       const sourceView = document.getElementById("source");
       const parametersView = document.getElementById("parameters");
       let zoom = 1;
@@ -177,8 +185,49 @@
         return btoa(binary);
       }
 
+      const mathmlNamespace = "http://www.w3.org/1998/Math/MathML";
+      const mathmlElements = new Set([
+        "math", "mtable", "mtr", "mtd", "mrow", "mi", "mn", "mo", "mtext",
+        "mfrac", "msqrt", "msub", "msup", "msubsup",
+      ]);
+
+      function copyMathmlNode(sourceNode) {
+        if (sourceNode.nodeType === Node.TEXT_NODE) {
+          return document.createTextNode(sourceNode.nodeValue || "");
+        }
+        if (sourceNode.nodeType !== Node.ELEMENT_NODE ||
+            sourceNode.namespaceURI !== mathmlNamespace ||
+            !mathmlElements.has(sourceNode.localName)) return null;
+        const copy = document.createElementNS(mathmlNamespace, sourceNode.localName);
+        if (sourceNode.localName === "math" &&
+            sourceNode.getAttribute("display") === "block") {
+          copy.setAttribute("display", "block");
+        }
+        for (const child of sourceNode.childNodes) {
+          const safeChild = copyMathmlNode(child);
+          if (safeChild === null) return null;
+          copy.append(safeChild);
+        }
+        return copy;
+      }
+
+      function showMathml(value) {
+        mathCanvas.replaceChildren();
+        mathCanvas.style.display = "none";
+        if (typeof value !== "string" || value.length === 0) return;
+        const parsed = new DOMParser().parseFromString(value, "application/xml");
+        const root = parsed.documentElement;
+        if (root.localName !== "math" || root.namespaceURI !== mathmlNamespace ||
+            parsed.querySelector("parsererror")) return;
+        const safeMath = copyMathmlNode(root);
+        if (safeMath === null) return;
+        mathCanvas.append(safeMath);
+        mathCanvas.style.display = "grid";
+      }
+
       function showResult(result) {
         const data = result?.structuredContent;
+        showMathml(data?.mathml);
         const text = result?.content?.find(
           (item) => item.type === "text" && typeof item.text === "string"
         )?.text;

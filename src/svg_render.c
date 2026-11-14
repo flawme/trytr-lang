@@ -34,6 +34,7 @@ typedef struct SvgState {
     int64_t group_stack_x[TRYTR_DEFAULT_DEPTH_LIMIT];
     int64_t group_stack_y[TRYTR_DEFAULT_DEPTH_LIMIT];
     size_t group_depth;
+    bool suppress_math_text;
 } SvgState;
 
 static bool buffer_reserve(SvgBuffer *buffer, size_t extra)
@@ -916,6 +917,17 @@ static bool render_plot(SvgState *state, const TrytrDocumentElement *element)
 static bool render_element(const TrytrDocumentElement *element, void *user_data)
 {
     SvgState *state = user_data;
+    if (state->suppress_math_text && element->kind == TRYTR_ELEMENT_MATH) {
+        int64_t font_size;
+        int64_t line_height;
+        text_metrics(element, &font_size, &line_height);
+        TextLineIterator iterator = text_line_iterator(element, font_size);
+        TextLine line;
+        size_t line_count = 0u;
+        while (text_line_next(&iterator, &line)) ++line_count;
+        state->flow_y += (int64_t)line_count * line_height + 8;
+        return true;
+    }
     if (element->kind == TRYTR_ELEMENT_GROUP_BEGIN) {
         if (!buffer_append(&state->output, "<g", 2u)) return false;
         if (element->id != NULL &&
@@ -1045,19 +1057,17 @@ static TrytrStatus append_svg_header(SvgState *state)
     return TRYTR_STATUS_OK;
 }
 
-TrytrStatus trytr_svg_render(
-    TrytrDocument *document,
-    char **out_svg,
-    size_t *out_length
-)
+static TrytrStatus svg_render(TrytrDocument *document,
+                             char **out_svg, size_t *out_length,
+                             bool suppress_math_text)
 {
+    if (out_svg != NULL) *out_svg = NULL;
+    if (out_length != NULL) *out_length = 0u;
     if (document == NULL || out_svg == NULL || out_length == NULL) {
         return TRYTR_STATUS_INVALID_ARGUMENT;
     }
-    *out_svg = NULL;
-    *out_length = 0u;
 
-    SvgState state = {.flow_y = 16};
+    SvgState state = {.flow_y = 16, .suppress_math_text = suppress_math_text};
     state.has_fixed_canvas = trytr_document_get_canvas_size(
         document, &state.canvas_width, &state.canvas_height);
     TrytrStatus status = trytr_document_execute(document, measure_element, &state);
@@ -1083,4 +1093,22 @@ TrytrStatus trytr_svg_render(
 fail:
     free(state.output.data);
     return status;
+}
+
+TrytrStatus trytr_svg_render(
+    TrytrDocument *document,
+    char **out_svg,
+    size_t *out_length
+)
+{
+    return svg_render(document, out_svg, out_length, false);
+}
+
+TrytrStatus trytr_svg_render_without_math(
+    TrytrDocument *document,
+    char **out_svg,
+    size_t *out_length
+)
+{
+    return svg_render(document, out_svg, out_length, true);
 }

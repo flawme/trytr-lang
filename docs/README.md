@@ -52,9 +52,11 @@ document's content with padding:
 
 ## Text and shapes
 
-`@heading`, `@text`, and `@math` take a block of text in braces. The current
-renderer shows these as SVG text. In math blocks, `_` and `^` followed by one
-character or a balanced brace group render as a subscript or superscript:
+`@heading`, `@text`, and `@math` take a block of text in braces. The SVG and
+text renderers show the entered math source. The MCP Apps preview also typesets
+`@math` elements natively with MathML. In math blocks, `_` and `^` followed by
+one character or a balanced brace group render as a subscript or superscript in
+that MathML output:
 
 ```trytr
 @math #sequence {x_{i+1} = x^2}
@@ -63,11 +65,21 @@ character or a balanced brace group render as a subscript or superscript:
 @math #ratio {\frac{p}{q}}
 ```
 
-Use a backslash to show `_`, `^`, or braces literally. This is basic
-presentation only: `@math` does not evaluate equations or parse general TeX
-commands. The built-in `\sqrt{...}` form draws a radical and overbar; other
-math text is shown as entered. The built-in `\frac{...}{...}` form lays out a
-smaller raised numerator and lowered denominator around a fraction slash.
+Use a backslash to show `_`, `^`, or braces literally. `@math` does not
+evaluate equations or parse general TeX commands. The native MathML renderer
+handles `\sqrt{...}` and `\frac{...}{...}`, simple arithmetic and relations,
+Greek letter commands, and scripts. Other commands stay visible as literal
+text. See [native math rendering](mathml-rendering.md) for current limits.
+
+The document C API also exposes a bounded notation tree for `@math` and the
+formatted result of `@expr`. Visitors can inspect rows, identifiers, numbers,
+groups, fractions, roots, scripts, explicit arithmetic, and relations through
+`TrytrDocumentElement.math_tree`; source offsets point into that element's
+original text. Unknown TeX commands remain command nodes, and inputs beyond
+the tree-size bound remain available as one raw node. The MathML renderer uses
+this tree; the SVG and text renderers continue to preserve the original source.
+See
+[the math notation API notes](math-notation.md).
 
 For a computed scalar, use `@expr` with a bounded expression. Its result appears
 as math text in the rendered document:
@@ -272,6 +284,7 @@ ctest --test-dir build/debug --output-on-failure
 ./build/debug/trytr --dump-ir docs/examples/shapes-and-groups.trytr
 ./build/debug/trytr --render-svg docs/examples/shapes-and-groups.trytr > /tmp/shapes-and-groups.svg
 ./build/debug/trytr --render-svg docs/examples/proof-sqrt2.trytr > /tmp/proof-sqrt2.svg
+./build/debug/trytr --render-mathml docs/examples/native-math.trytr
 ```
 
 The CLI prints validation errors to standard error and exits nonzero for an
@@ -284,6 +297,10 @@ into a chat message or terminal. The text backend keeps shape outlines and
 curves recognizable, while omitting color and fill styling. A text grid has
 finite cell resolution, so it cannot display a mathematically smooth curve at
 arbitrary zoom. Use SVG for continuous, scalable geometry.
+
+Use `--render-mathml` to write a MathML Core document for each `@math`
+element. Browsers typeset formulas using native math layout; this backend does
+not require a TeX installation.
 
 ```sh
 ./build/debug/trytr --render-text docs/examples/text-graph.trytr
@@ -308,9 +325,11 @@ breaks, multi-page layout, citations, or a browser-based editor.
 
 The optional MCP server is one host adapter. In an MCP Apps-capable chat client,
 it renders a completed Trytr document inside an embedded **Trytr Preview**
-panel. The current panel has zoom controls and a source view. It uses Trytr's
-local vector renderer; it does not call an image-generation service or create a
-raster image file. The model-facing render call returns a small preview ID, and
+panel. The current panel has zoom controls, a source view, and a native MathML
+area for `@math` elements. Its vector layer keeps layout spacing but leaves
+equation typesetting to the MathML area. It uses Trytr's local renderers; it
+does not call an image-generation service or create a raster image file. The
+model-facing render call returns a small preview ID, and
 the panel loads the SVG using a separate app-only MCP tool. This keeps SVG
 markup out of the model's context. The complete source is rendered after
 generation, so temporary streamed text does not determine the final line
@@ -359,6 +378,7 @@ output for plain chat and terminal clients.
 - [Numeric plot source](examples/data-plot.trytr) · [SVG](examples/data-plot.svg) · [chat text](examples/data-plot.txt)
 - [Shared parameter source](examples/interactive-peak.trytr) · [default render](examples/interactive-peak.svg) · [render with `peak=38`](examples/interactive-peak-38.svg)
 - [Formula plot with host controls](examples/formula-controls.trytr) · [default render](examples/formula-controls.svg)
+- [Native math source](examples/native-math.trytr) · render with `--render-mathml` or an MCP Apps preview
 
 See [math-rendering.md](math-rendering.md) for the spline and rasterization
 methods used for curves and lines.

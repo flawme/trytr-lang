@@ -4,6 +4,7 @@
 #include "plot.h"
 #include "plot_formula.h"
 #include "polygon.h"
+#include "math/notation_internal.h"
 #include "trytr/document.h"
 #include "trytr/math/expression.h"
 #include <inttypes.h>
@@ -26,6 +27,25 @@ typedef struct TrytrParser {
 
 static void parse_element(TrytrParser *parser, TrytrNode *parent);
 static void parse_element_list(TrytrParser *parser, TrytrNode *parent);
+static void error(TrytrParser *parser, const char *code,
+                  TrytrSourceLocation location, const char *message);
+
+static bool build_math_tree(TrytrParser *parser, TrytrNode *node)
+{
+    const TrytrMathNotationStatus status = trytr_math_notation_parse(
+        &parser->output->arena, node->text, node->text_length, &node->math_tree);
+    if (status == TRYTR_MATH_NOTATION_OK) return true;
+    if (status == TRYTR_MATH_NOTATION_NO_MEMORY) {
+        parser->output->out_of_memory = true;
+        error(parser, "TRYTR-E-MEMORY", node->location,
+              "unable to build mathematical notation tree");
+    } else {
+        error(parser, "TRYTR-E-LIMIT", node->location,
+              "mathematical notation tree exceeds its node limit");
+    }
+    parser->aborted = true;
+    return false;
+}
 
 static bool identifier_is(TrytrToken token, const char *name)
 {
@@ -1032,6 +1052,7 @@ static void parse_text_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
     }
     node->text = expanded;
     node->text_length = expanded_length;
+    if (!build_math_tree(parser, node)) return;
     trytr_ast_add_child(root, node);
 }
 
@@ -1103,6 +1124,7 @@ static void parse_expression_element(TrytrParser *parser, TrytrNode *node,
         return;
     }
     node->text_length = (size_t)formatted_length;
+    if (!build_math_tree(parser, node)) return;
     trytr_ast_add_child(root, node);
 }
 

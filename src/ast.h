@@ -3,6 +3,7 @@
 
 #include "arena.h"
 #include "diagnostic.h"
+#include "trytr/math/notation.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -36,6 +37,7 @@ typedef struct TrytrNode {
     char *id;
     char *text;
     size_t text_length;
+    const TrytrMathNode *math_tree;
     int64_t version;
     int64_t canvas_width;
     int64_t canvas_height;

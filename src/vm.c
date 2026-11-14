@@ -62,6 +62,7 @@ TrytrStatus trytr_vm_execute(
             .kind = public_kind(instruction->opcode),
             .element_index = instruction->element_index,
             .id = instruction->stable_id,
+            .math_tree = instruction->math_tree,
             .location = instruction->location,
             .has_fill = instruction->has_fill,
             .fill_rgb = instruction->fill_rgb,

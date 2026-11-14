@@ -195,6 +195,7 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
             instruction->opcode = TRYTR_IR_MATH;
             instruction->operands.text.bytes = node->text;
             instruction->operands.text.length = node->text_length;
+            instruction->math_tree = node->math_tree;
             break;
         case TRYTR_NODE_PATH:
             instruction->opcode = TRYTR_IR_PATH;

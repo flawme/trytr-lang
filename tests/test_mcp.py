@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,6 +125,8 @@ class TrytrMcpTests(unittest.TestCase):
         self.assertEqual(UI_MIME, resource["mimeType"])
         self.assertIn("ui/notifications/tool-result", resource["text"])
         self.assertIn('id="text-output"', resource["text"])
+        self.assertIn('id="math-canvas"', resource["text"])
+        self.assertIn("createElementNS(mathmlNamespace", resource["text"])
         self.assertIn("block-sextant", resource["text"])
 
         rendered = responses[3]["result"]
@@ -392,9 +395,57 @@ class TrytrMcpTests(unittest.TestCase):
                 },
             })["result"]
             self.assertTrue(fetched["structuredContent"]["ok"])
+            self.assertEqual("", fetched["structuredContent"]["mathml"])
             svg = fetched["content"][0]["text"]
             self.assertTrue(svg.startswith("<svg "))
             self.assertIn(" C ", svg)
+        finally:
+            process.stdin.close()
+            process.wait(timeout=10)
+            self.assertEqual(0, process.returncode, process.stderr.read())
+
+    def test_math_expressions_are_returned_as_native_mathml(self):
+        source = (
+            "@document(version:1){"
+            "@math #formula{\\frac{\\alpha+x_1}{\\sqrt{y}} < z_i^2}}"
+        )
+        process, exchange = self.start_server()
+        try:
+            rendered = exchange({
+                "jsonrpc": "2.0", "id": "render", "method": "tools/call",
+                "params": {
+                    "_meta": APP_SERVER_META,
+                    "name": "render_trytr",
+                    "arguments": {"source": source},
+                },
+            })["result"]
+            self.assertTrue(rendered["structuredContent"]["ok"])
+            fetched = exchange({
+                "jsonrpc": "2.0", "id": "preview", "method": "tools/call",
+                "params": {
+                    "_meta": APP_SERVER_META,
+                    "name": "get_trytr_preview",
+                    "arguments": {
+                        "previewId": rendered["structuredContent"]["previewId"]
+                    },
+                },
+            })["result"]
+            mathml = fetched["structuredContent"]["mathml"]
+            svg = fetched["content"][0]["text"]
+            self.assertNotIn("alpha", svg)
+            math_root = ElementTree.fromstring(mathml)
+            self.assertEqual(
+                "{http://www.w3.org/1998/Math/MathML}math", math_root.tag
+            )
+            self.assertTrue(mathml.startswith(
+                '<math xmlns="http://www.w3.org/1998/Math/MathML"'
+            ))
+            self.assertIn("<mfrac>", mathml)
+            self.assertIn("<mi>α</mi>", mathml)
+            self.assertIn("<msqrt>", mathml)
+            self.assertIn("<msubsup>", mathml)
+            self.assertIn("<mo>&lt;</mo>", mathml)
+            self.assertTrue(mathml.endswith("</math>"))
         finally:
             process.stdin.close()
             process.wait(timeout=10)
@@ -446,6 +497,7 @@ class TrytrMcpTests(unittest.TestCase):
                 },
             })["result"]
             self.assertTrue(fetched["structuredContent"]["ok"])
+            self.assertEqual("", fetched["structuredContent"]["mathml"])
             svg = fetched["content"][0]["text"]
             self.assertIn("Hello from chat — नमस्ते", svg)
             self.assertTrue(svg.startswith("<svg "))

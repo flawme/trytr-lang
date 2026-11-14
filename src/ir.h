@@ -25,6 +25,7 @@ typedef struct TrytrIRInstruction {
     TrytrIROpcode opcode;
     size_t element_index;
     const char *stable_id;
+    const TrytrMathNode *math_tree;
     TrytrSourceLocation location;
     bool has_fill;
     uint32_t fill_rgb;

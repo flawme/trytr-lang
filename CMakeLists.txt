@@ -69,6 +69,8 @@ add_library(
         src/polygon.c
         src/plot.c
         src/plot_formula.c
+        src/math/notation.c
+        src/mathml_render.c
         src/parser.c
         src/validator.c
         src/ir.c
@@ -140,6 +142,8 @@ if(BUILD_TESTING)
     trytr_add_test(trytr_style_tests trytr.style tests/test_style.c)
     trytr_add_test(trytr_group_tests trytr.groups tests/test_groups.c)
     trytr_add_test(trytr_document_tests trytr.document tests/test_document.c)
+    trytr_add_test(trytr_math_notation_tests trytr.math.notation tests/test_math_notation.c)
+    trytr_add_test(trytr_mathml_tests trytr.mathml tests/test_mathml.c)
     trytr_add_test(trytr_vm_tests trytr.vm tests/test_vm.c)
     trytr_add_test(trytr_svg_tests trytr.svg tests/test_svg.c)
     trytr_add_test(trytr_text_render_tests trytr.text_render tests/test_text_render.c)
@@ -169,6 +173,14 @@ if(BUILD_TESTING)
     set_tests_properties(
         trytr.cli.render_text
         PROPERTIES PASS_REGULAR_EXPRESSION "Revenue"
+    )
+    add_test(
+        NAME trytr.cli.render_mathml
+        COMMAND trytr --render-mathml "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/native-math.trytr"
+    )
+    set_tests_properties(
+        trytr.cli.render_mathml
+        PROPERTIES PASS_REGULAR_EXPRESSION "<mfrac>"
     )
     add_test(
         NAME trytr.cli.dump_group_events

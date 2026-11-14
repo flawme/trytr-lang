@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "trytr/math/notation.h"
+
 typedef struct TrytrDocument TrytrDocument;
 
 typedef enum TrytrStatus {
@@ -96,6 +98,8 @@ typedef enum TrytrTextAlignment {
  * each corresponding has_* flag before reading an optional value.
  * Heading and text elements may set text_width as a wrapping width in
  * document units; math elements keep their source lines unwrapped.
+ * Math elements also expose an immutable math_tree. Its nodes and source spans
+ * remain valid until the document is destroyed; node offsets refer to text.
  */
 typedef struct TrytrDocumentElement {
     TrytrElementKind kind;
@@ -103,6 +107,7 @@ typedef struct TrytrDocumentElement {
     const char *id;
     const char *text;
     size_t text_length;
+    const TrytrMathNode *math_tree;
     int64_t x;
     int64_t y;
     int64_t width;
