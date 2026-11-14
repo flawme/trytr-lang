@@ -86,6 +86,21 @@ add_executable(trytr src/main.c)
 target_link_libraries(trytr PRIVATE trytr_core)
 trytr_target_defaults(trytr)
 
+# PDF export reuses Trytr's SVG output and a locally installed headless
+# Chromium. Keep this optional so the language core remains dependency-free.
+target_sources(trytr PRIVATE src/pdf_render.c)
+if(UNIX)
+    find_program(
+        TRYTR_CHROMIUM_EXECUTABLE
+        NAMES chromium chromium-browser google-chrome-stable google-chrome
+    )
+    if(TRYTR_CHROMIUM_EXECUTABLE)
+        target_compile_definitions(
+            trytr PRIVATE TRYTR_CHROMIUM_EXECUTABLE="${TRYTR_CHROMIUM_EXECUTABLE}"
+        )
+    endif()
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)
@@ -207,5 +222,16 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mcp.py"
                 "$<TARGET_FILE:trytr>"
         )
+        if(TRYTR_CHROMIUM_EXECUTABLE)
+            add_test(
+                NAME trytr.cli.render_pdf
+                COMMAND
+                    "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_export.py"
+                    "$<TARGET_FILE:trytr>"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/proof-sqrt2.trytr"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/interactive-peak.trytr"
+            )
+        endif()
     endif()
 endif()

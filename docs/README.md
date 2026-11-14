@@ -289,6 +289,21 @@ arbitrary zoom. Use SVG for continuous, scalable geometry.
 ./build/debug/trytr --render-text docs/examples/text-graph.trytr
 ```
 
+### Export a PDF
+
+Keep the `.trytr` file as the editable source, then compile it to a vector PDF:
+
+```sh
+./build/debug/trytr --render-pdf docs/examples/proof-sqrt2.trytr > proof-sqrt2.pdf
+```
+
+PDF export uses Chromium or Google Chrome installed on the build machine; CMake
+detects it when configuring. The renderer preserves the SVG curves and shapes
+as vector content. A fixed `width` and `height` in `@document` set the page
+canvas; without them, the single PDF page fits the document's rendered content.
+This is an initial source-to-PDF workflow: Trytr does not yet add automatic page
+breaks, multi-page layout, citations, or a browser-based editor.
+
 ## Render from an AI chat
 
 The optional MCP server is one host adapter. In an MCP Apps-capable chat client,
