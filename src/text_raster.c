@@ -2,6 +2,7 @@
 #include "trytr/math/curve.h"
 #include "plot.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -263,6 +264,26 @@ static bool read_integer(const char **cursor, const char *end, int64_t *out_valu
     return true;
 }
 
+static bool read_plot_number(const char **cursor, const char *end, double *out_value)
+{
+    skip_separators(cursor, end);
+    if (*cursor >= end) return false;
+    char number[128];
+    size_t length = 0u;
+    while (*cursor < end && **cursor != ' ' && **cursor != '\t' &&
+           **cursor != '\n' && **cursor != '\r' && **cursor != ',') {
+        if (length + 1u >= sizeof(number)) return false;
+        number[length++] = **cursor;
+        ++*cursor;
+    }
+    number[length] = '\0';
+    char *parsed_end = NULL;
+    const double value = strtod(number, &parsed_end);
+    if (parsed_end == number || *parsed_end != '\0' || !isfinite(value)) return false;
+    *out_value = value;
+    return true;
+}
+
 static void draw_polygon(TextState *state, const TrytrDocumentElement *element)
 {
     const char *cursor = element->text;
@@ -291,20 +312,20 @@ static void draw_polygon(TextState *state, const TrytrDocumentElement *element)
     if (!first) draw_segment(state, previous_x, previous_y, first_x, first_y);
 }
 
-static double plot_coordinate_x(const TrytrDocumentElement *element, int64_t value)
+static double plot_coordinate_x(const TrytrDocumentElement *element, double value)
 {
-    const int64_t span = element->max_x - element->min_x;
-    if (span == 0) return (double)element->x + (double)element->width / 2.0;
+    const double span = element->plot_max_x - element->plot_min_x;
+    if (span == 0.0) return (double)element->x + (double)element->width / 2.0;
     return (double)element->x +
-           (double)(value - element->min_x) * (double)element->width / (double)span;
+           (value - element->plot_min_x) * (double)element->width / span;
 }
 
-static double plot_coordinate_y(const TrytrDocumentElement *element, int64_t value)
+static double plot_coordinate_y(const TrytrDocumentElement *element, double value)
 {
-    const int64_t span = element->max_y - element->min_y;
-    if (span == 0) return (double)element->y + (double)element->height / 2.0;
+    const double span = element->plot_max_y - element->plot_min_y;
+    if (span == 0.0) return (double)element->y + (double)element->height / 2.0;
     return (double)element->y +
-           (double)(value - element->min_y) * (double)element->height / (double)span;
+           (value - element->plot_min_y) * (double)element->height / span;
 }
 
 static void draw_flat_curve_segment(TrytrMathPoint start, TrytrMathPoint end,
@@ -339,9 +360,10 @@ static void draw_plot(TextState *state, const TrytrDocumentElement *element)
     const char *end = cursor + element->text_length;
     size_t point_count = 0u;
     while (cursor < end && point_count < TRYTR_DEFAULT_PLOT_POINT_LIMIT) {
-        int64_t x = 0;
-        int64_t y = 0;
-        if (!read_integer(&cursor, end, &x) || !read_integer(&cursor, end, &y)) return;
+        double x = 0.0;
+        double y = 0.0;
+        if (!read_plot_number(&cursor, end, &x) ||
+            !read_plot_number(&cursor, end, &y)) return;
         points[point_count].x = plot_coordinate_x(element, x) + (double)state->group_x;
         points[point_count].y = plot_coordinate_y(element, y) + (double)state->group_y;
         ++point_count;

@@ -273,6 +273,87 @@ class TrytrMcpTests(unittest.TestCase):
         self.assertNotIn("\U0001fb00", rendered_text["result"]["content"][0]["text"])
         self.assertIn("Preview ID:", rendered_text["result"]["content"][0]["text"])
 
+    def test_declared_parameters_become_host_controls_and_change_formula_plot(self):
+        source = (
+            "@document(version:1,width:100,height:60){"
+            "@param #gain(min:1,max:5,value:2,step:1){Curve gain}"
+            "@plot #response(5,5,90,45)(x-min:-2,x-max:2,samples:17,"
+            "grid:false,markers:false){y=#gain*sin(x)}}"
+        )
+        process, exchange = self.start_server()
+        try:
+            tools = exchange({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                "params": {"_meta": APP_SERVER_META},
+            })["result"]["tools"]
+            parameter_schema = tools[0]["inputSchema"]["properties"]["parameters"]
+            self.assertEqual("object", parameter_schema["type"])
+            self.assertEqual(128, parameter_schema["maxProperties"])
+
+            baseline = exchange({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {
+                    "_meta": APP_SERVER_META,
+                    "name": "render_trytr",
+                    "arguments": {"source": source},
+                },
+            })["result"]
+            baseline_parameter = baseline["structuredContent"]["parameters"][0]
+            self.assertEqual({
+                "id": "gain", "label": "Curve gain", "min": 1, "max": 5,
+                "default": 2, "value": 2, "step": 1,
+            }, baseline_parameter)
+
+            updated = exchange({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {
+                    "_meta": APP_SERVER_META,
+                    "name": "render_trytr",
+                    "arguments": {"source": source, "parameters": {"gain": 4}},
+                },
+            })["result"]
+            self.assertFalse(updated["isError"])
+            self.assertEqual(4, updated["structuredContent"]["parameters"][0]["value"])
+            previews = []
+            for rendered in (baseline, updated):
+                previews.append(exchange({
+                    "jsonrpc": "2.0", "id": 4 + len(previews), "method": "tools/call",
+                    "params": {
+                        "_meta": APP_SERVER_META,
+                        "name": "get_trytr_preview",
+                        "arguments": {
+                            "previewId": rendered["structuredContent"]["previewId"]
+                        },
+                    },
+                })["result"]["content"][0]["text"])
+            self.assertNotEqual(previews[0], previews[1])
+
+            resource = exchange({
+                "jsonrpc": "2.0", "id": 7, "method": "resources/read",
+                "params": {"uri": "ui://trytr/preview-v1", "_meta": APP_SERVER_META},
+            })["result"]["contents"][0]["text"]
+            self.assertIn('type = "range"', resource)
+            self.assertIn('name: "render_trytr"', resource)
+        finally:
+            process.stdin.close()
+            process.wait(timeout=10)
+            self.assertEqual(0, process.returncode, process.stderr.read())
+
+    def test_parameter_override_rejects_non_integer_values(self):
+        response = self.run_server([{
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "_meta": APP_SERVER_META,
+                "name": "render_trytr",
+                "arguments": {
+                    "source": "@document(version:1){@text{safe}}",
+                    "parameters": {"invalid;--render-svg": True},
+                },
+            },
+        }])[0]["result"]
+        self.assertTrue(response["isError"])
+        self.assertFalse(response["structuredContent"]["ok"])
+
     def test_apps_text_fallback_loads_smooth_svg_preview(self):
         process, exchange = self.start_server()
         try:

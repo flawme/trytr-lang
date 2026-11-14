@@ -133,18 +133,38 @@ static void validate_geometry(const TrytrNode *node, TrytrDiagnosticList *diagno
         size_t index;
         if (node->kind == TRYTR_NODE_PLOT &&
             (strcmp(property->name, "grid") == 0 ||
-             strcmp(property->name, "markers") == 0)) {
-            const unsigned int option_index =
-                strcmp(property->name, "grid") == 0 ? 0u : 1u;
+             strcmp(property->name, "markers") == 0 ||
+             strcmp(property->name, "x-min") == 0 ||
+             strcmp(property->name, "x-max") == 0 ||
+             strcmp(property->name, "samples") == 0)) {
+            const unsigned int option_index = strcmp(property->name, "grid") == 0 ? 0u :
+                strcmp(property->name, "markers") == 0 ? 1u :
+                strcmp(property->name, "x-min") == 0 ? 2u :
+                strcmp(property->name, "x-max") == 0 ? 3u : 4u;
             const unsigned int flag = 1u << option_index;
             if ((plot_option_seen & flag) != 0u) {
                 validation_error(diagnostics, "TRYTR-E-PROPERTY", property->location,
                                  "duplicate plot option");
             }
             plot_option_seen |= flag;
-            if (property->integer_value != 0 && property->integer_value != 1) {
+            if ((option_index <= 1u && property->integer_value != 0 &&
+                 property->integer_value != 1) ||
+                (option_index >= 2u && !node->formula_plot)) {
                 validation_error(diagnostics, "TRYTR-E-PLOT-OPTION", property->location,
-                                 "plot grid and markers options must be true or false");
+                                 option_index <= 1u
+                                     ? "plot grid and markers options must be true or false"
+                                     : "x-min, x-max, and samples are only valid for formula plots");
+            }
+            if ((option_index == 2u || option_index == 3u) &&
+                (property->integer_value < -TRYTR_DEFAULT_COORDINATE_LIMIT ||
+                 property->integer_value > TRYTR_DEFAULT_COORDINATE_LIMIT)) {
+                validation_error(diagnostics, "TRYTR-E-COORDINATE", property->location,
+                                 "formula plot x range exceeds the coordinate limit");
+            }
+            if (option_index == 4u &&
+                (property->integer_value < 2 || property->integer_value > 1024)) {
+                validation_error(diagnostics, "TRYTR-E-PLOT-SAMPLES", property->location,
+                                 "formula plot samples must be between 2 and 1024");
             }
             continue;
         }

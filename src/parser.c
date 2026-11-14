@@ -2,8 +2,10 @@
 #include "lexer.h"
 #include "path.h"
 #include "plot.h"
+#include "plot_formula.h"
 #include "polygon.h"
 #include "trytr/document.h"
+#include "trytr/math/expression.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -1033,6 +1035,77 @@ static void parse_text_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
     trytr_ast_add_child(root, node);
 }
 
+static void parse_expression_element(TrytrParser *parser, TrytrNode *node,
+                                     TrytrNode *root)
+{
+    if (parser->current.kind != TRYTR_TOKEN_LBRACE) {
+        error(parser, "TRYTR-E-SYNTAX", parser->current.location,
+              "expected a scalar expression block");
+        skip_element(parser);
+        return;
+    }
+    const size_t diagnostics_before = parser->output->diagnostics.count;
+    if (!trytr_lexer_raw_block(&parser->lexer, &parser->output->arena,
+                               &node->text, &node->text_length)) {
+        if (parser->output->diagnostics.count == diagnostics_before)
+            parser->output->out_of_memory = true;
+        parser->current = trytr_lexer_next(&parser->lexer);
+        skip_element(parser);
+        return;
+    }
+    parser->current = trytr_lexer_next(&parser->lexer);
+
+    char *expanded = NULL;
+    size_t expanded_length = 0u;
+    if (!expand_parameter_references(parser, node->text, node->text_length,
+                                     4096u, node->location, &expanded,
+                                     &expanded_length)) return;
+    TrytrMathExpression *expression = NULL;
+    size_t error_offset = 0u;
+    const TrytrMathExpressionStatus compile_status = trytr_math_expression_compile(
+        expanded, expanded_length, &expression, &error_offset);
+    if (compile_status != TRYTR_MATH_EXPRESSION_OK) {
+        if (compile_status == TRYTR_MATH_EXPRESSION_NO_MEMORY) {
+            error(parser, "TRYTR-E-MEMORY", node->location,
+                  "unable to compile scalar expression");
+            parser->aborted = true;
+            return;
+        }
+        error(parser, compile_status == TRYTR_MATH_EXPRESSION_LIMIT_EXCEEDED
+                  ? "TRYTR-E-LIMIT" : "TRYTR-E-EXPRESSION",
+              node->location,
+              compile_status == TRYTR_MATH_EXPRESSION_UNKNOWN_NAME
+                  ? "unknown name in scalar expression"
+                  : "invalid scalar expression or function arguments");
+        return;
+    }
+    double value = 0.0;
+    if (!trytr_math_expression_evaluate(expression, 0.0, &value)) {
+        trytr_math_expression_destroy(expression);
+        error(parser, "TRYTR-E-EXPRESSION-DOMAIN", node->location,
+              "scalar expression has a domain error or non-finite result");
+        return;
+    }
+    trytr_math_expression_destroy(expression);
+    char formatted[64];
+    const int formatted_length = snprintf(formatted, sizeof(formatted), "%.17g", value);
+    if (formatted_length < 0 || (size_t)formatted_length >= sizeof(formatted)) {
+        error(parser, "TRYTR-E-EXPRESSION", node->location,
+              "scalar expression result could not be formatted");
+        return;
+    }
+    node->text = trytr_arena_copy_string(&parser->output->arena, formatted,
+                                         (size_t)formatted_length);
+    if (node->text == NULL) {
+        error(parser, "TRYTR-E-MEMORY", node->location,
+              "unable to store scalar expression result");
+        parser->aborted = true;
+        return;
+    }
+    node->text_length = (size_t)formatted_length;
+    trytr_ast_add_child(root, node);
+}
+
 static void advance_source_location(const char *source, size_t length,
                                    size_t byte_count, TrytrSourceLocation *location)
 {
@@ -1220,6 +1293,104 @@ static void parse_plot_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
     node->text = expanded_points;
     node->text_length = expanded_points_length;
 
+    size_t expression_start = 0u;
+    while (expression_start < node->text_length &&
+           (node->text[expression_start] == ' ' || node->text[expression_start] == '\t' ||
+            node->text[expression_start] == '\n' || node->text[expression_start] == '\r')) {
+        ++expression_start;
+    }
+    const bool formula_plot = node->text_length - expression_start >= 2u &&
+        node->text[expression_start] == 'y' &&
+        (node->text[expression_start + 1u] == '=' ||
+         node->text[expression_start + 1u] == ' ' ||
+         node->text[expression_start + 1u] == '\t');
+    if (formula_plot) {
+        size_t formula_start = expression_start + 1u;
+        while (formula_start < node->text_length &&
+               (node->text[formula_start] == ' ' || node->text[formula_start] == '\t')) {
+            ++formula_start;
+        }
+        if (formula_start >= node->text_length || node->text[formula_start] != '=') {
+            error(parser, "TRYTR-E-PLOT-FORMULA", raw_location,
+                  "formula plots must begin with 'y = expression'");
+            trytr_ast_add_child(root, node);
+            return;
+        }
+        ++formula_start;
+        while (formula_start < node->text_length &&
+               (node->text[formula_start] == ' ' || node->text[formula_start] == '\t' ||
+                node->text[formula_start] == '\n' || node->text[formula_start] == '\r')) {
+            ++formula_start;
+        }
+        int64_t min_x = -10;
+        int64_t max_x = 10;
+        int64_t samples = 257;
+        for (const TrytrProperty *property = node->properties;
+             property != NULL; property = property->next) {
+            if (strcmp(property->name, "x-min") == 0) min_x = property->integer_value;
+            else if (strcmp(property->name, "x-max") == 0) max_x = property->integer_value;
+            else if (strcmp(property->name, "samples") == 0) samples = property->integer_value;
+        }
+        if (min_x >= max_x || min_x < -TRYTR_DEFAULT_COORDINATE_LIMIT ||
+            max_x > TRYTR_DEFAULT_COORDINATE_LIMIT) {
+            error(parser, "TRYTR-E-PLOT-DOMAIN", raw_location,
+                  "formula plot x-min must be less than x-max within the coordinate range");
+            trytr_ast_add_child(root, node);
+            return;
+        }
+        if (samples < 2 || samples > 1024) {
+            error(parser, "TRYTR-E-PLOT-SAMPLES", raw_location,
+                  "formula plot samples must be between 2 and 1024");
+            trytr_ast_add_child(root, node);
+            return;
+        }
+        char *expanded_formula = NULL;
+        size_t expanded_formula_length = 0u;
+        if (!expand_parameter_references(parser, node->text + formula_start,
+                                         node->text_length - formula_start,
+                                         4096u, raw_location, &expanded_formula,
+                                         &expanded_formula_length)) {
+            trytr_ast_add_child(root, node);
+            return;
+        }
+        TrytrPlotAnalysis formula_analysis;
+        size_t formula_error_offset = 0u;
+        const TrytrPlotFormulaStatus formula_status = trytr_plot_formula_sample(
+            expanded_formula, expanded_formula_length, (double)min_x,
+            (double)max_x, (size_t)samples, &parser->output->arena,
+            &node->text, &node->text_length, &formula_analysis,
+            &formula_error_offset);
+        if (formula_status != TRYTR_PLOT_FORMULA_OK) {
+            const TrytrSourceLocation location = raw_block_error_location(
+                parser, raw_source_offset, raw_location,
+                formula_start + formula_error_offset);
+            if (formula_status == TRYTR_PLOT_FORMULA_NO_MEMORY) {
+                error(parser, "TRYTR-E-MEMORY", location,
+                      "unable to sample formula plot");
+                parser->aborted = true;
+            } else if (formula_status == TRYTR_PLOT_FORMULA_LIMIT_EXCEEDED) {
+                error(parser, "TRYTR-E-LIMIT", location,
+                      "formula exceeds its operation or output limit");
+            } else if (formula_status == TRYTR_PLOT_FORMULA_DOMAIN) {
+                error(parser, "TRYTR-E-PLOT-FORMULA", location,
+                      "formula is undefined or outside the coordinate range at a sample");
+            } else {
+                error(parser, "TRYTR-E-PLOT-FORMULA", location,
+                      "invalid formula; use y = expression with supported math functions");
+            }
+            trytr_ast_add_child(root, node);
+            return;
+        }
+        node->formula_plot = true;
+        node->plot_point_count = formula_analysis.point_count;
+        node->plot_min_x = formula_analysis.min_x;
+        node->plot_min_y = formula_analysis.min_y;
+        node->plot_max_x = formula_analysis.max_x;
+        node->plot_max_y = formula_analysis.max_y;
+        trytr_ast_add_child(root, node);
+        return;
+    }
+
     TrytrPlotAnalysis analysis;
     size_t error_offset = 0u;
     const TrytrPlotStatus status = trytr_plot_analyze(
@@ -1235,7 +1406,7 @@ static void parse_plot_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
                   "plot data coordinate exceeds the coordinate limit");
         } else {
             error(parser, "TRYTR-E-PLOT", location,
-                  "invalid plot data; expected at least two integer x/y pairs");
+                  "invalid plot data; expected at least two decimal x/y pairs");
         }
         trytr_ast_add_child(root, node);
         return;
@@ -1266,6 +1437,7 @@ static void parse_element(TrytrParser *parser, TrytrNode *root)
     parser->content_started = true;
     TrytrNodeKind kind;
     bool text_element = false;
+    bool expression_element = false;
     bool path_element = false;
     bool group_element = false;
     bool polygon_element = false;
@@ -1273,6 +1445,7 @@ static void parse_element(TrytrParser *parser, TrytrNode *root)
     if (identifier_is(name, "heading")) { kind = TRYTR_NODE_HEADING; text_element = true; }
     else if (identifier_is(name, "text")) { kind = TRYTR_NODE_TEXT; text_element = true; }
     else if (identifier_is(name, "math")) { kind = TRYTR_NODE_MATH; text_element = true; }
+    else if (identifier_is(name, "expr")) { kind = TRYTR_NODE_MATH; expression_element = true; }
     else if (identifier_is(name, "rect")) kind = TRYTR_NODE_RECT;
     else if (identifier_is(name, "roundrect")) kind = TRYTR_NODE_ROUNDRECT;
     else if (identifier_is(name, "line")) kind = TRYTR_NODE_LINE;
@@ -1294,6 +1467,10 @@ static void parse_element(TrytrParser *parser, TrytrNode *root)
         parse_text_options(parser, node);
         if (parser->aborted) return;
         parse_text_element(parser, node, root);
+        return;
+    }
+    if (expression_element) {
+        parse_expression_element(parser, node, root);
         return;
     }
     if (path_element || polygon_element) {

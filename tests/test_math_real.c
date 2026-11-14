@@ -21,7 +21,18 @@ static bool test_real_primitives(void)
                          sqrt(2.0) * 1e308));
     TEST_ASSERT(close_to(trytr_real_sin(TRYTR_REAL_PI / 2.0), 1.0));
     TEST_ASSERT(close_to(trytr_real_cos(TRYTR_REAL_PI), -1.0));
+    TEST_ASSERT(close_to(trytr_real_tan(0.0), 0.0));
+    TEST_ASSERT(close_to(trytr_real_asin(1.0), TRYTR_REAL_PI / 2.0));
+    TEST_ASSERT(close_to(trytr_real_acos(1.0), 0.0));
+    TEST_ASSERT(close_to(trytr_real_atan(1.0), TRYTR_REAL_PI / 4.0));
     TEST_ASSERT(close_to(trytr_real_atan2(1.0, 0.0), TRYTR_REAL_PI / 2.0));
+    TEST_ASSERT(close_to(trytr_real_exp(0.0), 1.0));
+    TEST_ASSERT(close_to(trytr_real_log(TRYTR_REAL_E), 1.0));
+    TEST_ASSERT(close_to(trytr_real_log10(100.0), 2.0));
+    TEST_ASSERT(close_to(trytr_real_pow(2.0, 3.0), 8.0));
+    TEST_ASSERT(close_to(trytr_real_sinh(0.0), 0.0));
+    TEST_ASSERT(close_to(trytr_real_cosh(0.0), 1.0));
+    TEST_ASSERT(close_to(trytr_real_tanh(0.0), 0.0));
     return true;
 }
 

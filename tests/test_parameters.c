@@ -22,6 +22,7 @@ typedef struct RenderCapture {
     size_t text_length;
     size_t math_length;
     size_t plot_length;
+    bool formula_plot;
 } RenderCapture;
 
 static bool capture_element(const TrytrDocumentElement *element, void *user_data)
@@ -43,6 +44,7 @@ static bool capture_element(const TrytrDocumentElement *element, void *user_data
             capture->math[element->text_length] = '\0';
         }
     } else if (element->kind == TRYTR_ELEMENT_PLOT) {
+        capture->formula_plot = element->formula_plot;
         capture->plot_length = element->text_length;
         if (element->text_length < sizeof(capture->plot)) {
             memcpy(capture->plot, element->text, element->text_length);
@@ -186,6 +188,27 @@ static bool test_duplicate_override_and_invalid_default_are_rejected(void)
     return true;
 }
 
+static bool test_host_parameter_override_changes_formula_plot_samples(void)
+{
+    static const char formula_source[] =
+        "@document(version:1,width:80,height:60){"
+        "@param #gain(min:1,max:5,value:2,step:1){Slope}"
+        "@plot #line(0,0,80,50)(x-min:-2,x-max:2,samples:5){y=#gain*x}}";
+    const TrytrParameterOverride override = {.id = "gain", .value = 4};
+    TrytrDocument *document = NULL;
+    TEST_ASSERT(trytr_document_parse_with_parameters(
+        formula_source, sizeof(formula_source) - 1u, &override, 1u,
+        &document) == TRYTR_STATUS_OK);
+    RenderCapture capture = {0};
+    TEST_ASSERT(trytr_document_execute(document, capture_element, &capture) ==
+                TRYTR_STATUS_OK);
+    TEST_ASSERT(capture.formula_plot);
+    TEST_ASSERT(strcmp(capture.plot,
+                       "-2,-8 -1,-4 0,0 1,4 2,8") == 0);
+    trytr_document_destroy(document);
+    return true;
+}
+
 static const TrytrTestCase tests[] = {
     {"default parameter reaches multiple content types",
      test_default_parameter_value_reaches_multiple_content_types},
@@ -196,7 +219,9 @@ static const TrytrTestCase tests[] = {
     {"parameters precede content and overrides are declared",
      test_parameters_must_precede_content_and_overrides_must_be_declared},
     {"duplicate overrides and invalid defaults are rejected",
-     test_duplicate_override_and_invalid_default_are_rejected}
+     test_duplicate_override_and_invalid_default_are_rejected},
+    {"host override changes formula plot samples",
+     test_host_parameter_override_changes_formula_plot_samples}
 };
 
 TEST_MAIN(tests)

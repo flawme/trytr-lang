@@ -8,6 +8,7 @@ from collections import OrderedDict
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import subprocess
@@ -28,6 +29,7 @@ MAX_SOURCE_BYTES = 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 MAX_MESSAGE_BYTES = 8 * MAX_SOURCE_BYTES + 64 * 1024
 MAX_DIAGNOSTIC_BYTES = 16 * 1024
+MAX_PARAMETER_COUNT = 128
 RENDER_TIMEOUT_SECONDS = 10
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 UI_MIME_TYPE = "text/html;profile=mcp-app"
@@ -43,6 +45,10 @@ SERVER_INSTRUCTIONS = (
     "code-rendered vector preview when the client supports MCP Apps. Use "
     "render_trytr_text as the fallback for clients without MCP Apps; text characters "
     "occupy a discrete grid and cannot show a mathematically continuous curve. "
+    "Plots accept either decimal data points or y = scalar-expression blocks with "
+    "bounded x ranges and sample counts. Scalar functions are available in @expr "
+    "and formula plots. Declared @param values are returned as preview controls; "
+    "pass integer overrides in the parameters object to re-render the document. "
     "Both modes validate and render locally after receiving the complete source."
 )
 SERVER_META = {"io.modelcontextprotocol/serverInfo": SERVER_INFO}
@@ -58,6 +64,9 @@ TOOLS = [
             "code after generation, so model token streaming does not create jagged "
             "intermediate strokes. Clients without MCP Apps receive a text-grid fallback. "
             "This is a local vector view, not image generation. "
+            "Declared @param values appear as controls in MCP Apps previews and can "
+            "be overridden with the optional parameters object. Formula plots use "
+            "y = expression blocks with x-min, x-max, and samples options. "
             "On invalid source, return parser or validation diagnostics."
         ),
         "inputSchema": {
@@ -67,7 +76,13 @@ TOOLS = [
                     "type": "string",
                     "description": "A complete Trytr document beginning with @document.",
                     "maxLength": MAX_SOURCE_BYTES,
-                }
+                },
+                "parameters": {
+                    "type": "object",
+                    "description": "Optional values for declared interactive parameters.",
+                    "maxProperties": MAX_PARAMETER_COUNT,
+                    "additionalProperties": {"type": "integer"},
+                },
             },
             "required": ["source"],
             "additionalProperties": False,
@@ -84,6 +99,23 @@ TOOLS = [
                 "ok": {"type": "boolean"},
                 "previewId": {"type": "string"},
                 "message": {"type": "string"},
+                "parameters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "min": {"type": "integer"},
+                            "max": {"type": "integer"},
+                            "default": {"type": "integer"},
+                            "value": {"type": "integer"},
+                            "step": {"type": "integer"},
+                        },
+                        "required": ["id", "label", "min", "max", "default", "value", "step"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": ["ok", "message"],
             "additionalProperties": False,
@@ -98,6 +130,7 @@ TOOLS = [
             "When called by an MCP Apps client, open the same code-rendered vector preview "
             "as render_trytr so the final graph stays smooth. Use this when literal "
             "plain-text output is needed or the client has no embedded preview."
+            " Parameter values can be supplied in the optional parameters object."
         ),
         "inputSchema": {
             "type": "object",
@@ -106,7 +139,13 @@ TOOLS = [
                     "type": "string",
                     "description": "A complete Trytr document beginning with @document.",
                     "maxLength": MAX_SOURCE_BYTES,
-                }
+                },
+                "parameters": {
+                    "type": "object",
+                    "description": "Optional values for declared interactive parameters.",
+                    "maxProperties": MAX_PARAMETER_COUNT,
+                    "additionalProperties": {"type": "integer"},
+                },
             },
             "required": ["source"],
             "additionalProperties": False,
@@ -123,6 +162,23 @@ TOOLS = [
                 "ok": {"type": "boolean"},
                 "previewId": {"type": "string"},
                 "message": {"type": "string"},
+                "parameters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "min": {"type": "integer"},
+                            "max": {"type": "integer"},
+                            "default": {"type": "integer"},
+                            "value": {"type": "integer"},
+                            "step": {"type": "integer"},
+                        },
+                        "required": ["id", "label", "min", "max", "default", "value", "step"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": ["ok", "message"],
             "additionalProperties": False,
@@ -289,7 +345,8 @@ def _check_modern_meta(
 
 
 def _render_document(
-    source: str, executable: str, apps_supported: bool
+    source: str, executable: str, apps_supported: bool,
+    parameter_values: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     # Apps clients can show vectors even when a model selected the text tool.
     # Every non-App client gets useful inline text from either render tool.
@@ -309,9 +366,72 @@ def _render_document(
             "isError": True,
         }
 
+    parameter_values = parameter_values or {}
+    if len(parameter_values) > MAX_PARAMETER_COUNT or any(
+        not isinstance(parameter_id, str)
+        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", parameter_id) is None
+        or not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < -(2**63)
+        or value > 2**63 - 1
+        for parameter_id, value in parameter_values.items()
+    ):
+        message = "Parameter overrides must be a bounded object of integer values keyed by declared IDs."
+        return {
+            "content": [{"type": "text", "text": message}],
+            "structuredContent": {"ok": False, "message": message},
+            "isError": True,
+        }
+
+    override_args = [argument for parameter_id, value in parameter_values.items()
+                     for argument in ("--set", f"{parameter_id}={value}")]
+    try:
+        metadata = subprocess.run(
+            [executable, *override_args, "--dump-parameters", "-"],
+            input=source_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=RENDER_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        metadata = None
+    except OSError:
+        metadata = None
+    if metadata is None:
+        message = "Trytr parameter metadata could not be loaded."
+        return {
+            "content": [{"type": "text", "text": message}],
+            "structuredContent": {"ok": False, "message": message},
+            "isError": True,
+        }
+    if metadata.returncode != 0:
+        diagnostic = metadata.stderr[:MAX_DIAGNOSTIC_BYTES].decode(
+            "utf-8", errors="replace"
+        ).strip()
+        message = diagnostic or "Trytr rejected the document while reading its parameters."
+        return {
+            "content": [{"type": "text", "text": message}],
+            "structuredContent": {"ok": False, "message": message},
+            "isError": True,
+        }
+    try:
+        parameters = json.loads(metadata.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        parameters = None
+    if (not isinstance(parameters, list) or len(parameters) > MAX_PARAMETER_COUNT
+            or any(not isinstance(parameter, dict) for parameter in parameters)):
+        message = "Trytr returned invalid parameter metadata."
+        return {
+            "content": [{"type": "text", "text": message}],
+            "structuredContent": {"ok": False, "message": message},
+            "isError": True,
+        }
+
     try:
         completed = subprocess.run(
-            [executable, "--render-text" if render_format == "text" else "--render-svg", "-"],
+            [executable, *override_args,
+             "--render-text" if render_format == "text" else "--render-svg", "-"],
             input=source_bytes,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -374,6 +494,7 @@ def _render_document(
             "structuredContent": {
                 "ok": True,
                 "message": "Trytr text rendered successfully.",
+                "parameters": parameters,
             },
             "isError": False,
         }
@@ -395,6 +516,7 @@ def _render_document(
     structured_content: dict[str, Any] = {
         "ok": True,
         "message": "Trytr document rendered successfully.",
+        "parameters": parameters,
     }
     content_text = "Trytr document rendered successfully."
     if apps_supported:
@@ -523,9 +645,15 @@ def handle_request(
         if tool_name not in ("render_trytr", "render_trytr_text"):
             return _error(request_id, -32602, "Unknown tool")
         arguments = params.get("arguments")
-        if not isinstance(arguments, dict) or not isinstance(arguments.get("source"), str):
+        if (not isinstance(arguments, dict)
+                or set(arguments) - {"source", "parameters"}
+                or not isinstance(arguments.get("source"), str)):
             return _error(request_id, -32602, f"{tool_name} requires a string 'source' argument")
-        result = _render_document(arguments["source"], executable, apps_supported)
+        parameter_values = arguments.get("parameters", {})
+        if not isinstance(parameter_values, dict):
+            return _error(request_id, -32602, "'parameters' must be an object of integer values")
+        result = _render_document(arguments["source"], executable, apps_supported,
+                                  parameter_values)
         if not apps_supported:
             result.pop("structuredContent", None)
         if is_modern:

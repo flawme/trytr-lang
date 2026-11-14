@@ -48,6 +48,14 @@
       display: none; max-width: 100%; max-height: 560px; overflow: auto;
       border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
     }
+    #parameters {
+      display: none; gap: 10px; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    }
+    .parameter-control { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(120px, 3fr) 4ch; align-items: center; gap: 10px; }
+    .parameter-control label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .parameter-control input { width: 100%; accent-color: var(--accent); }
+    .parameter-control output { font-variant-numeric: tabular-nums; text-align: right; }
     #text-output {
       width: max-content; max-width: none; max-height: none; margin: 0; padding: 12px;
       border: 0; border-radius: 0; white-space: pre; overflow: visible;
@@ -97,6 +105,7 @@
     <section class="text-canvas" id="text-canvas" aria-label="Rendered Trytr text drawing">
       <pre id="text-output"></pre>
     </section>
+    <section id="parameters" aria-label="Interactive document parameters"></section>
     <details>
       <summary>Trytr source</summary>
       <pre id="source">No source received.</pre>
@@ -111,9 +120,15 @@
       const textCanvas = document.getElementById("text-canvas");
       const textOutput = document.getElementById("text-output");
       const sourceView = document.getElementById("source");
+      const parametersView = document.getElementById("parameters");
       let zoom = 1;
       let ready = false;
       let canCallServerTools = false;
+      let currentSource = "";
+      let parameterValues = {};
+      let parameterSignature = "";
+      let renderTimer = 0;
+      let renderGeneration = 0;
 
       function send(method, params = {}) {
         window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -220,6 +235,114 @@
         empty.textContent = diagnostic || "This client returned no renderable preview data.";
       }
 
+      function unwrapResult(value) {
+        return value?.result && typeof value.result === "object" ? value.result : value;
+      }
+
+      function renderParameterControls(parameters) {
+        if (!Array.isArray(parameters) || parameters.length === 0) {
+          parametersView.replaceChildren();
+          parameterSignature = "";
+          parameterValues = {};
+          parametersView.style.display = "none";
+          return;
+        }
+        const descriptors = parameters.filter((parameter) => parameter &&
+          typeof parameter.id === "string" && Number.isInteger(parameter.min) &&
+          Number.isInteger(parameter.max) && Number.isInteger(parameter.step) &&
+          Number.isInteger(parameter.value));
+        const signature = JSON.stringify(descriptors.map(({id, label, min, max, step}) =>
+          [id, label, min, max, step]));
+        if (signature === parameterSignature) {
+          for (const parameter of descriptors) {
+            parameterValues[parameter.id] = parameter.value;
+            const input = document.getElementById(`parameter-${parameter.id}`);
+            const output = input?.closest(".parameter-control")?.querySelector("output");
+            if (input && output && document.activeElement !== input) {
+              input.value = String(parameter.value);
+              output.textContent = String(parameter.value);
+            }
+          }
+          return;
+        }
+        parametersView.replaceChildren();
+        parameterSignature = signature;
+        parameterValues = {};
+        for (const parameter of descriptors) {
+          parameterValues[parameter.id] = parameter.value;
+          const row = document.createElement("div");
+          row.className = "parameter-control";
+          const label = document.createElement("label");
+          label.htmlFor = `parameter-${parameter.id}`;
+          label.textContent = parameter.label || parameter.id;
+          const input = document.createElement("input");
+          input.type = "range";
+          input.id = `parameter-${parameter.id}`;
+          input.min = String(parameter.min);
+          input.max = String(parameter.max);
+          input.step = String(parameter.step);
+          input.value = String(parameter.value);
+          const output = document.createElement("output");
+          output.setAttribute("for", input.id);
+          output.textContent = String(parameter.value);
+          input.addEventListener("input", () => {
+            const value = Number(input.value);
+            parameterValues[parameter.id] = value;
+            output.textContent = String(value);
+            window.clearTimeout(renderTimer);
+            renderTimer = window.setTimeout(() => rerenderWithParameters(), 180);
+          });
+          row.append(label, input, output);
+          parametersView.append(row);
+        }
+        parametersView.style.display = parametersView.childElementCount ? "grid" : "none";
+      }
+
+      async function loadRenderedPreview(value, generation) {
+        const result = unwrapResult(value);
+        const data = result?.structuredContent;
+        renderParameterControls(data?.parameters);
+        const previewId = data?.previewId;
+        if (typeof previewId !== "string") {
+          showResult(result);
+          return;
+        }
+        if (!canCallServerTools) {
+          status.textContent = "This host did not enable calls from embedded views.";
+          empty.textContent = "Use an MCP Apps host that supports app-to-server tool calls to load this drawing.";
+          return;
+        }
+        status.textContent = "Rendered successfully. Loading the drawing…";
+        try {
+          const preview = unwrapResult(await request("tools/call", {
+            name: "get_trytr_preview",
+            arguments: { previewId },
+          }));
+          if (generation === renderGeneration) showResult(preview);
+        } catch (error) {
+          if (generation !== renderGeneration) return;
+          status.textContent = "The preview host could not load the drawing.";
+          empty.textContent = error.message;
+        }
+      }
+
+      async function rerenderWithParameters() {
+        if (!currentSource || !canCallServerTools) return;
+        const generation = ++renderGeneration;
+        status.textContent = "Updating the drawing…";
+        try {
+          const result = await request("tools/call", {
+            name: "render_trytr",
+            arguments: { source: currentSource, parameters: { ...parameterValues } },
+          });
+          if (generation === renderGeneration) await loadRenderedPreview(result, generation);
+        } catch (error) {
+          if (generation !== renderGeneration) return;
+          status.textContent = "The updated drawing could not be rendered.";
+          empty.textContent = error.message;
+        }
+      }
+
       function applyHostContext(context) {
         if (context?.theme === "dark" || context?.theme === "light") {
           document.documentElement.dataset.theme = context.theme;
@@ -242,29 +365,11 @@
         if (event.source !== window.parent || event.data?.jsonrpc !== "2.0") return;
         const { method, params } = event.data;
         if (method === "ui/notifications/tool-input" && typeof params?.arguments?.source === "string") {
+          currentSource = params.arguments.source;
           sourceView.textContent = params.arguments.source;
         } else if (method === "ui/notifications/tool-result") {
-          const resultData = params?.structuredContent;
-          const resultText = params?.content?.find((item) => item.type === "text")?.text || "";
-          const textPreviewId = resultText.match(/\bPreview ID: ([A-Za-z0-9_-]{1,64})\b/)?.[1];
-          const previewId = resultData?.previewId || textPreviewId;
-          if ((resultData?.ok || textPreviewId) && typeof previewId === "string") {
-            if (!canCallServerTools) {
-              status.textContent = "This host did not enable calls from embedded views.";
-              empty.textContent = "Use an MCP Apps host that supports app-to-server tool calls to load this drawing.";
-              return;
-            }
-            status.textContent = "Rendered successfully. Loading the drawing…";
-            request("tools/call", {
-              name: "get_trytr_preview",
-              arguments: { previewId },
-            }).then(showResult).catch((error) => {
-              status.textContent = "The preview host could not load the drawing.";
-              empty.textContent = error.message;
-            });
-          } else {
-            showResult(params);
-          }
+          const generation = ++renderGeneration;
+          void loadRenderedPreview(params, generation);
         } else if (method === "ui/notifications/host-context-changed") {
           applyHostContext(params);
         }

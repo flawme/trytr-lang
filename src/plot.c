@@ -2,7 +2,13 @@
 
 #include "limits.h"
 
+#include <errno.h>
+#include <math.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define PLOT_NUMBER_TEXT_LIMIT 128u
 
 static bool is_space(char value)
 {
@@ -10,7 +16,7 @@ static bool is_space(char value)
 }
 
 static bool read_coordinate(const char *data, size_t length, size_t *cursor,
-                            bool require_separator, int64_t *out_value,
+                            bool require_separator, double *out_value,
                             size_t *out_error_offset, bool *out_range_error)
 {
     const size_t before_separator = *cursor;
@@ -39,32 +45,61 @@ static bool read_coordinate(const char *data, size_t length, size_t *cursor,
     }
 
     const size_t start = *cursor;
-    bool negative = false;
-    if (data[*cursor] == '+' || data[*cursor] == '-') {
-        negative = data[*cursor] == '-';
-        ++*cursor;
-    }
-    const size_t digits_start = *cursor;
-    int64_t magnitude = 0;
+    if (data[*cursor] == '+' || data[*cursor] == '-') ++*cursor;
+    bool has_digit = false;
     while (*cursor < length && data[*cursor] >= '0' && data[*cursor] <= '9') {
-        const int64_t digit = (int64_t)(data[*cursor] - '0');
-        if (magnitude > (TRYTR_DEFAULT_COORDINATE_LIMIT - digit) / 10) {
-            *out_error_offset = start;
-            *out_range_error = true;
-            return false;
-        }
-        magnitude = magnitude * 10 + digit;
+        has_digit = true;
         ++*cursor;
     }
-    if (*cursor == digits_start) {
+    if (*cursor < length && data[*cursor] == '.') {
+        ++*cursor;
+        while (*cursor < length && data[*cursor] >= '0' && data[*cursor] <= '9') {
+            has_digit = true;
+            ++*cursor;
+        }
+    }
+    if (!has_digit) {
         *out_error_offset = start;
         return false;
     }
-    *out_value = negative ? -magnitude : magnitude;
+    if (*cursor < length && (data[*cursor] == 'e' || data[*cursor] == 'E')) {
+        ++*cursor;
+        if (*cursor < length && (data[*cursor] == '+' || data[*cursor] == '-')) ++*cursor;
+        const size_t exponent_start = *cursor;
+        while (*cursor < length && data[*cursor] >= '0' && data[*cursor] <= '9') ++*cursor;
+        if (*cursor == exponent_start) {
+            *out_error_offset = start;
+            return false;
+        }
+    }
+
+    const size_t token_length = *cursor - start;
+    if (token_length >= PLOT_NUMBER_TEXT_LIMIT) {
+        *out_error_offset = start;
+        *out_range_error = true;
+        return false;
+    }
+    char number[PLOT_NUMBER_TEXT_LIMIT];
+    memcpy(number, data + start, token_length);
+    number[token_length] = '\0';
+    errno = 0;
+    char *end = NULL;
+    const double value = strtod(number, &end);
+    if (end == number || *end != '\0') {
+        *out_error_offset = start;
+        return false;
+    }
+    if (errno == ERANGE || !isfinite(value) ||
+        fabs(value) > (double)TRYTR_DEFAULT_COORDINATE_LIMIT) {
+        *out_error_offset = start;
+        *out_range_error = true;
+        return false;
+    }
+    *out_value = value;
     return true;
 }
 
-static void include_point(TrytrPlotAnalysis *analysis, int64_t x, int64_t y,
+static void include_point(TrytrPlotAnalysis *analysis, double x, double y,
                           bool first)
 {
     if (first) {
@@ -91,12 +126,12 @@ TrytrPlotStatus trytr_plot_analyze(const char *data, size_t length,
 
     size_t cursor = 0u;
     size_t coordinate_count = 0u;
-    int64_t x = 0;
+    double x = 0.0;
     while (cursor < length) {
         size_t trailing_space = cursor;
         while (trailing_space < length && is_space(data[trailing_space])) ++trailing_space;
         if (trailing_space == length) break;
-        int64_t coordinate = 0;
+        double coordinate = 0.0;
         bool range_error = false;
         if (!read_coordinate(data, length, &cursor, coordinate_count != 0u,
                              &coordinate, out_error_offset, &range_error)) {

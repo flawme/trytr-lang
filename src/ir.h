@@ -88,16 +88,17 @@ typedef struct TrytrIRInstruction {
             const char *points;
             size_t length;
             size_t point_count;
-            int64_t min_x;
-            int64_t min_y;
-            int64_t max_x;
-            int64_t max_y;
+            double min_x;
+            double min_y;
+            double max_x;
+            double max_y;
             int64_t x;
             int64_t y;
             int64_t width;
             int64_t height;
             bool grid;
             bool markers;
+            bool formula;
         } plot;
         struct {
             const char *data;

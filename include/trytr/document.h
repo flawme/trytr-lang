@@ -81,7 +81,10 @@ typedef enum TrytrTextAlignment {
  * the scope. Group events are included in
  * source traversal order. Paths use min_x, min_y, max_x, and max_y for
  * conservative bounds. Plots use x, y, width, and height for the chart box;
- * point_count and min/max coordinates describe their validated data. Only id
+ * point_count describes validated plot data. min_x/min_y/max_x/max_y retain
+ * conservative integer bounds; plot_min_x/plot_min_y/plot_max_x/plot_max_y
+ * preserve the precise decimal data bounds. formula_plot identifies plots
+ * sampled from a math expression. Only id
  * is an author-defined persistent identity.
  * Optional fill_rgb and stroke_rgb values are packed as 0xRRGGBB; check their
  * corresponding has_fill and has_stroke flags before reading them.
@@ -113,7 +116,12 @@ typedef struct TrytrDocumentElement {
     int64_t min_y;
     int64_t max_x;
     int64_t max_y;
+    double plot_min_x;
+    double plot_min_y;
+    double plot_max_x;
+    double plot_max_y;
     size_t point_count;
+    bool formula_plot;
     TrytrSourceLocation location;
     bool has_fill;
     uint32_t fill_rgb;

@@ -15,7 +15,7 @@
 static void print_usage(FILE *stream)
 {
     fputs("usage: trytr [--version] [--help] [--set ID=INTEGER]...\n"
-          "             [--dump-ir|--render-svg|--render-text] [FILE|-]\n", stream);
+          "             [--dump-ir|--dump-parameters|--render-svg|--render-text] [FILE|-]\n", stream);
 }
 
 static void free_override_ids(char **ids, size_t count)
@@ -125,6 +125,29 @@ static bool print_ir_element(const TrytrDocumentElement *element, void *user_dat
     return fputc('\n', stdout) != EOF;
 }
 
+static bool print_parameters(const TrytrDocument *document)
+{
+    if (fputc('[', stdout) == EOF) return false;
+    const size_t count = trytr_document_parameter_count(document);
+    for (size_t index = 0u; index < count; ++index) {
+        const TrytrDocumentParameter *parameter =
+            trytr_document_parameter_at(document, index);
+        if (parameter == NULL) return false;
+        if (index != 0u && fputc(',', stdout) == EOF) return false;
+        if (fputs("{\"id\":", stdout) == EOF ||
+            !print_escaped(parameter->id, strlen(parameter->id)) ||
+            fputs(",\"label\":", stdout) == EOF ||
+            !print_escaped(parameter->label, parameter->label_length) ||
+            printf(",\"min\":%" PRId64 ",\"max\":%" PRId64
+                   ",\"default\":%" PRId64 ",\"value\":%" PRId64
+                   ",\"step\":%" PRId64 "}",
+                   parameter->minimum, parameter->maximum,
+                   parameter->default_value, parameter->value,
+                   parameter->step) < 0) return false;
+    }
+    return fputs("]\n", stdout) != EOF;
+}
+
 static const char *severity_name(TrytrDiagnosticSeverity severity)
 {
     switch (severity) {
@@ -171,7 +194,8 @@ static int read_source(FILE *stream, char **out_source, size_t *out_length)
 }
 
 static int process_source(const char *name, const char *source, size_t length,
-                          bool dump_ir, bool render_svg, bool render_text,
+                          bool dump_ir, bool dump_parameters,
+                          bool render_svg, bool render_text,
                           const TrytrParameterOverride *overrides,
                           size_t override_count)
 {
@@ -201,7 +225,12 @@ static int process_source(const char *name, const char *source, size_t length,
     }
 
     if (status == TRYTR_STATUS_OK) {
-        if (render_svg || render_text) {
+        if (dump_parameters) {
+            if (!print_parameters(document)) {
+                status = TRYTR_STATUS_EXECUTION_FAILED;
+                fputs("trytr: failed to write parameter metadata\n", stderr);
+            }
+        } else if (render_svg || render_text) {
             char *output = NULL;
             size_t output_length = 0u;
             status = render_svg
@@ -239,6 +268,7 @@ int main(int argc, char **argv)
         return 0;
     }
     bool dump_ir = false;
+    bool dump_parameters = false;
     bool render_svg = false;
     bool render_text = false;
     const char *input_path = NULL;
@@ -285,21 +315,28 @@ int main(int argc, char **argv)
             };
             ++override_count;
         } else if (strcmp(argv[index], "--dump-ir") == 0) {
-            if (dump_ir || render_svg || render_text) {
+            if (dump_ir || dump_parameters || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             dump_ir = true;
+        } else if (strcmp(argv[index], "--dump-parameters") == 0) {
+            if (dump_ir || dump_parameters || render_svg || render_text) {
+                fputs("trytr: choose only one output mode\n", stderr);
+                option_error = 2;
+                break;
+            }
+            dump_parameters = true;
         } else if (strcmp(argv[index], "--render-svg") == 0) {
-            if (dump_ir || render_svg || render_text) {
+            if (dump_ir || dump_parameters || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             render_svg = true;
         } else if (strcmp(argv[index], "--render-text") == 0) {
-            if (dump_ir || render_svg || render_text) {
+            if (dump_ir || dump_parameters || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
@@ -345,7 +382,8 @@ int main(int argc, char **argv)
         return result;
     }
 
-    result = process_source(name, source, length, dump_ir, render_svg, render_text,
+    result = process_source(name, source, length, dump_ir, dump_parameters,
+                            render_svg, render_text,
                             overrides, override_count);
     if (fflush(stdout) != 0) {
         fputs("trytr: failed to write output\n", stderr);

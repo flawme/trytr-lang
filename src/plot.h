@@ -13,10 +13,10 @@ typedef enum TrytrPlotStatus {
 
 typedef struct TrytrPlotAnalysis {
     size_t point_count;
-    int64_t min_x;
-    int64_t min_y;
-    int64_t max_x;
-    int64_t max_y;
+    double min_x;
+    double min_y;
+    double max_x;
+    double max_y;
 } TrytrPlotAnalysis;
 
 TrytrPlotStatus trytr_plot_analyze(

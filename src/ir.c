@@ -253,6 +253,7 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
             instruction->operands.plot.max_y = node->plot_max_y;
             instruction->operands.plot.grid = shape_boolean_property(node, "grid", true);
             instruction->operands.plot.markers = shape_boolean_property(node, "markers", true);
+            instruction->operands.plot.formula = node->formula_plot;
             break;
         case TRYTR_NODE_DOCUMENT:
         case TRYTR_NODE_GROUP:

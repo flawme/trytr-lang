@@ -1,0 +1,16 @@
+@document(version:1,width:720,height:420) {
+    @param #amplitude(min:1,max:6,value:3,step:1) {Amplitude}
+    @heading #title {A tunable wave}
+    @text #description(width:640) {
+        Change the amplitude to see the sampled formula update in the host preview.
+    }
+    @expr #rms {sqrt(2)}
+    @text #formula {
+        y = #amplitude * sin(x) + 0.15*x
+    }
+    @plot #wave(72,130,600,220)(x-min:-10,x-max:10,samples:129,
+                                 stroke:rgb(37,99,235),stroke-width:3,
+                                 grid:true,markers:false) {
+        y = #amplitude * sin(x) + 0.15*x
+    }
+}

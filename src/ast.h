@@ -53,11 +53,12 @@ typedef struct TrytrNode {
     int64_t polygon_max_x;
     int64_t polygon_max_y;
     size_t polygon_point_count;
-    int64_t plot_min_x;
-    int64_t plot_min_y;
-    int64_t plot_max_x;
-    int64_t plot_max_y;
+    double plot_min_x;
+    double plot_min_y;
+    double plot_max_x;
+    double plot_max_y;
     size_t plot_point_count;
+    bool formula_plot;
     TrytrSourceLocation location;
     TrytrProperty *properties;
     TrytrProperty *properties_tail;

@@ -18,11 +18,11 @@ example, an AI-authored explanation could expose a developer-approved numeric
 value; changing it would update the linked formula, plotted data, and labels
 together. The document would describe the allowed control and its range, while
 the host remains responsible for which controls it permits. The prototype
-supports bounded integer parameters and can re-render a document with an
-override, updating its linked math and plot data together. It does not yet
-provide live MCP controls, incremental dependency updates, or evaluated
-functions. This distinction keeps the examples below honest about what works
-today and what the language is being built toward.
+supports bounded integer parameters, live controls in MCP Apps, formula plots,
+and scalar math expressions. It does not yet provide incremental dependency
+updates or typed complex/vector values in the document language. This keeps
+the examples below honest about what works today and what the language is
+being built toward.
 
 Trytr files are plain text documents. A file starts with a versioned document
 block; elements inside it are written in source order:
@@ -64,19 +64,36 @@ character or a balanced brace group render as a subscript or superscript:
 ```
 
 Use a backslash to show `_`, `^`, or braces literally. This is basic
-presentation only: Trytr does not evaluate equations or parse general TeX
+presentation only: `@math` does not evaluate equations or parse general TeX
 commands. The built-in `\sqrt{...}` form draws a radical and overbar; other
 math text is shown as entered. The built-in `\frac{...}{...}` form lays out a
 smaller raised numerator and lowered denominator around a fraction slash.
+
+For a computed scalar, use `@expr` with a bounded expression. Its result appears
+as math text in the rendered document:
+
+```trytr
+@expr #root-value {sqrt(2)}
+@expr #distance {hypot(3, 4)}
+@expr #angle {atan2(1, 1) * 180 / pi}
+```
+
+Expressions support decimal and scientific numbers, `pi`, `e`, `+`, `-`, `*`,
+`/`, `^`, parentheses, unary signs, and the pure functions `sqrt`, `abs`,
+`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `exp`, `log`, `log10`, `sinh`,
+`cosh`, `tanh`, `pow`, `atan2`, `hypot`, `min`, and `max`. Trigonometric
+functions use radians. Domain errors, non-finite results, unknown functions,
+and expressions beyond the implementation limits are rejected during parsing.
 
 The implementation also has a small, separately linked C math library under
 `include/trytr/math` and `src/math`. It currently separates real scalars,
 complex numbers, points, 2D vectors, matrices, affine transforms, and curve
 geometry. A vector can be converted explicitly to `x + yi`; its rotation uses
 complex multiplication, while dot and cross products stay vector operations.
-These are library APIs for the implementation today. Their representations
-and numerical boundaries are in [the math library notes](math-library.md).
-They do not make `@math` an expression evaluator yet.
+The scalar math layer is available to both `@expr` and formula plots. The
+complex, vector, matrix, transform, and curve APIs remain lower-level C library
+modules for now; their representations and numerical boundaries are in [the
+math library notes](math-library.md).
 
 Text blocks can set a font size, RGB color, and alignment in a parenthesized
 option list. Font sizes range from 1 through 256 document units; the defaults
@@ -108,8 +125,9 @@ Shapes take integer expressions. The positional values are:
 
 Plots map the data's numeric x and y ranges into the chart rectangle, draw
 left and bottom axes with readable numeric ticks, light grid lines, and a smooth
-cubic curve through points in the order written. Sample markers make the input
-data visible. A constant data axis is centered in the chart. Unlike `@path`, a plot does not require
+cubic curve through points in the order written. Coordinates may be decimal or
+scientific notation. Sample markers make the input data visible. A constant
+data axis is centered in the chart. Unlike `@path`, a plot does not require
 authors to calculate drawing coordinates. A plot accepts up to 2,048 pairs;
 each data coordinate uses the standard `-1,000,000` to `1,000,000` range:
 
@@ -132,6 +150,22 @@ markers are on by default; a series color and line width can be set directly:
 Use `grid:false` or `markers:false` to turn either feature off. Plot colors use
 the same `rgb(red, green, blue)` form as other shapes; width is from 0 through
 32 document units.
+
+For a function, start the plot block with `y =` and set its integer x range.
+Trytr samples the expression at evenly spaced (fractional) x values, then
+builds a smooth cubic path through the evaluated points. The default range is -10 through 10 and the
+default is 257 samples; `samples` may be set from 2 through 1,024:
+
+```trytr
+@plot #wave(20,30,400,180)(x-min:-8,x-max:8,samples:321,markers:false) {
+    y = sin(x) / (1 + x^2)
+}
+```
+
+Formula plots use the same scalar functions as `@expr`, plus the independent
+variable `x`. A sample where the function is undefined, non-finite, or outside
+the coordinate limit invalidates the plot. Sample count and expression size
+are bounded, and decimal precision is preserved through SVG and text rendering.
 
 You can also use named values, for example:
 
@@ -203,12 +237,11 @@ a minimum, maximum, default value, step, and a reader-facing label:
 @param #peak(min:8, max:48, value:24, step:2) {Peak height}
 ```
 
-Use `#peak` inside integer expressions, text or math blocks, or as a numeric
-plot data coordinate. The selected value is resolved consistently across
-those locations. Parameter references can use the arithmetic operators above
-in integer expressions; plot data currently accepts a parameter as a
-coordinate value. Parameters must be declared before document content, and
-cannot be nested in groups. The current implementation supports at most 128
+Use `#peak` inside integer expressions, text or math blocks, `@expr`, formula
+plots, or as a numeric plot data coordinate. The selected value is resolved
+consistently across those locations. Parameter references can use the
+arithmetic operators above in integer expressions. Parameters must be declared
+before document content and cannot be nested in groups. The current implementation supports at most 128
 parameters; values are bounded to the document coordinate range.
 
 The C API accepts a validated parameter override while parsing a document. The
@@ -220,9 +253,12 @@ new value for the equation and graph together:
 ./build/debug/trytr --set peak=38 --render-svg docs/examples/interactive-peak.trytr
 ```
 
-The MCP preview does not yet expose parameter controls. A host can currently
-re-render with a new value through the C API or CLI; live controls and reactive
-updates in the chat panel are still to be added.
+MCP Apps hosts receive each parameter's label, range, default, current value,
+and step with the preview. The embedded panel displays an accessible slider
+for each declaration and re-renders the document as values change. Hosts can
+also pass a `parameters` object with `render_trytr` or `render_trytr_text`; the
+same bounds and step validation used by the C API and CLI is applied before
+rendering.
 
 ## Build, validate, and render
 
@@ -307,6 +343,7 @@ output for plain chat and terminal clients.
 - [Text graph source](examples/text-graph.trytr) · [text rendering](examples/text-graph.txt)
 - [Numeric plot source](examples/data-plot.trytr) · [SVG](examples/data-plot.svg) · [chat text](examples/data-plot.txt)
 - [Shared parameter source](examples/interactive-peak.trytr) · [default render](examples/interactive-peak.svg) · [render with `peak=38`](examples/interactive-peak-38.svg)
+- [Formula plot with host controls](examples/formula-controls.trytr) · [default render](examples/formula-controls.svg)
 
 See [math-rendering.md](math-rendering.md) for the spline and rasterization
 methods used for curves and lines.

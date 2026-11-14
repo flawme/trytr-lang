@@ -36,7 +36,9 @@ branch cut. The principal-value convention follows the NIST
 [DLMF definitions](https://dlmf.nist.gov/4.2); operand scaling for this
 operation is discussed by Ercegovac and Muller in
 [Complex Square Root with Operand Prescaling](https://perso.ens-lyon.fr/jean-michel.muller/ComplexSqrt-JVLSI.pdf).
-This numerical API is not exposed to `.trytr` document expressions yet.
+The real scalar portion is exposed to `.trytr` through `@expr` and formula
+plots. Complex, vector, matrix, affine, and curve operations remain available
+to C callers but are not yet typed values or operators in document expressions.
 
 Operations with output parameters initialize the output to zero before checking
 their inputs. Complex division and matrix inversion return `false` for invalid
@@ -76,6 +78,27 @@ overflow-prone squared distance. Curve flattening checks the cubic control hull
 against the requested screen-space tolerance and refuses requests it cannot
 meet within its fixed subdivision budget. It checks that budget before calling
 the consumer, so failure cannot leave half a curve in the output.
+
+## Document expressions
+
+The expression compiler lives separately in
+`include/trytr/math/expression.h` and `src/math/expression.c`; it translates a
+bounded expression to postfix instructions and evaluates it with a fixed-size
+stack. It exposes real arithmetic, constants, and the real scalar functions
+listed in the public header. Formula plots bind `x`, evaluate the expression
+over a bounded integer interval, and keep the resulting decimal coordinates
+through the SVG and text renderers.
+
+Formula plotting uses an author-selected, uniform sample count (257 by default,
+up to 1,024), then fits a cubic path through those samples. This produces a
+smooth vector path while keeping work and output size predictable. Uniform
+sampling can miss narrow features in a rapidly varying function; the plot
+should therefore be read as an approximation at the chosen sample density.
+Classical graphics work on adaptive subdivision instead sets an error tolerance
+in projected screen space and adds samples where visible deviation is high;
+see Forsey and Klassen, [An Adaptive Subdivision Algorithm for Crack
+Prevention](https://graphicsinterface.org/wp-content/uploads/gi1990-1.pdf).
+That is a useful next improvement if Trytr adds automatic sample selection.
 
 The matrix type represents only linear maps. Translation has a separate affine
 type whose composition order is explicit: `left * right` applies the right

@@ -41,6 +41,8 @@ add_library(
     trytr_math
     STATIC
         src/math/real.c
+        src/math/expression.c
+        src/math/expression_eval.c
         src/math/complex.c
         src/math/vector2.c
         src/math/matrix2.c
@@ -66,6 +68,7 @@ add_library(
         src/path.c
         src/polygon.c
         src/plot.c
+        src/plot_formula.c
         src/parser.c
         src/validator.c
         src/ir.c
@@ -108,6 +111,7 @@ if(BUILD_TESTING)
     trytr_add_test(trytr_parameter_tests trytr.parameters tests/test_parameters.c)
     trytr_add_test(trytr_path_tests trytr.path tests/test_path.c)
     trytr_add_math_test(trytr_math_real_tests trytr.math.real tests/test_math_real.c)
+    trytr_add_math_test(trytr_math_expression_tests trytr.math.expression tests/test_math_expression.c)
     trytr_add_math_test(trytr_math_complex_tests trytr.math.complex tests/test_math_complex.c)
     trytr_add_math_test(trytr_math_vector2_tests trytr.math.vector2 tests/test_math_vector2.c)
     trytr_add_math_test(trytr_math_matrix2_tests trytr.math.matrix2 tests/test_math_matrix2.c)
@@ -167,6 +171,15 @@ if(BUILD_TESTING)
     set_tests_properties(
         trytr.cli.parameter_override
         PROPERTIES PASS_REGULAR_EXPRESSION "x=8 y=0 width=10 height=10"
+    )
+    add_test(
+        NAME trytr.cli.dump_parameters
+        COMMAND trytr --dump-parameters
+                "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/interactive-peak.trytr"
+    )
+    set_tests_properties(
+        trytr.cli.dump_parameters
+        PROPERTIES PASS_REGULAR_EXPRESSION "\"id\":\"peak\".*\"value\":24"
     )
     add_test(
         NAME trytr.cli.proof

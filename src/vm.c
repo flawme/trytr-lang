@@ -2,6 +2,8 @@
 
 #include "limits.h"
 
+#include <math.h>
+
 static TrytrElementKind public_kind(TrytrIROpcode opcode)
 {
     switch (opcode) {
@@ -155,10 +157,15 @@ TrytrStatus trytr_vm_execute(
                 element.text = instruction->operands.plot.points;
                 element.text_length = instruction->operands.plot.length;
                 element.point_count = instruction->operands.plot.point_count;
-                element.min_x = instruction->operands.plot.min_x;
-                element.min_y = instruction->operands.plot.min_y;
-                element.max_x = instruction->operands.plot.max_x;
-                element.max_y = instruction->operands.plot.max_y;
+                element.plot_min_x = instruction->operands.plot.min_x;
+                element.plot_min_y = instruction->operands.plot.min_y;
+                element.plot_max_x = instruction->operands.plot.max_x;
+                element.plot_max_y = instruction->operands.plot.max_y;
+                element.min_x = (int64_t)floor(instruction->operands.plot.min_x);
+                element.min_y = (int64_t)floor(instruction->operands.plot.min_y);
+                element.max_x = (int64_t)ceil(instruction->operands.plot.max_x);
+                element.max_y = (int64_t)ceil(instruction->operands.plot.max_y);
+                element.formula_plot = instruction->operands.plot.formula;
                 element.x = instruction->operands.plot.x;
                 element.y = instruction->operands.plot.y;
                 element.width = instruction->operands.plot.width;

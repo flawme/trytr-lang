@@ -3,6 +3,8 @@
 #include "test.h"
 
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
 static bool has_code(const TrytrDocument *document, const char *code)
 {
@@ -16,6 +18,49 @@ static bool has_code(const TrytrDocument *document, const char *code)
 static TrytrStatus parse_text(const char *source, TrytrDocument **document)
 {
     return trytr_document_parse(source, strlen(source), document);
+}
+
+typedef struct MathCapture {
+    bool seen;
+    double value;
+} MathCapture;
+
+static bool capture_math_result(const TrytrDocumentElement *element, void *user_data)
+{
+    MathCapture *capture = user_data;
+    if (element->kind != TRYTR_ELEMENT_MATH) return true;
+    char *end = NULL;
+    capture->value = strtod(element->text, &end);
+    capture->seen = end == element->text + element->text_length;
+    return true;
+}
+
+static bool test_scalar_math_expression_is_exposed_in_documents(void)
+{
+    const char *source = "@document(version:1){@expr #distance{hypot(3,4)+sqrt(2)}}";
+    TrytrDocument *document = NULL;
+    TRYTR_ASSERT(parse_text(source, &document) == TRYTR_STATUS_OK);
+    MathCapture capture = {0};
+    TRYTR_ASSERT(trytr_document_execute(document, capture_math_result, &capture) ==
+                 TRYTR_STATUS_OK);
+    TRYTR_ASSERT(capture.seen);
+    TRYTR_ASSERT(fabs(capture.value - (5.0 + sqrt(2.0))) < 1e-14);
+    trytr_document_destroy(document);
+
+    const char *invalid[] = {
+        "@document(version:1){@expr{sqrt(-1)}}",
+        "@document(version:1){@expr{unknown(2)}}",
+        "@document(version:1){@expr{pow(2)}}"
+    };
+    for (size_t index = 0u; index < sizeof(invalid) / sizeof(invalid[0]); ++index) {
+        document = NULL;
+        TRYTR_ASSERT(parse_text(invalid[index], &document) ==
+                     TRYTR_STATUS_INVALID_DOCUMENT);
+        TRYTR_ASSERT(document != NULL);
+        TRYTR_ASSERT(trytr_document_diagnostic_count(document) > 0u);
+        trytr_document_destroy(document);
+    }
+    return true;
 }
 
 static bool test_valid_public_document(void)
@@ -148,6 +193,7 @@ static bool test_invalid_api_arguments(void)
 int main(void)
 {
     TRYTR_RUN(test_valid_public_document);
+    TRYTR_RUN(test_scalar_math_expression_is_exposed_in_documents);
     TRYTR_RUN(test_duplicate_stable_ids_are_rejected);
     TRYTR_RUN(test_rect_properties_are_validated);
     TRYTR_RUN(test_line_and_circle_properties_are_validated);
