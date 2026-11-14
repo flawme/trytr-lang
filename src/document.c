@@ -59,16 +59,46 @@ TrytrStatus trytr_document_parse(
     TrytrDocument **out_document
 )
 {
+    return trytr_document_parse_with_parameters(source, length, NULL, 0u, out_document);
+}
+
+TrytrStatus trytr_document_parse_with_parameters(
+    const char *source,
+    size_t length,
+    const TrytrParameterOverride *overrides,
+    size_t override_count,
+    TrytrDocument **out_document
+)
+{
     if (out_document == NULL) return TRYTR_STATUS_INVALID_ARGUMENT;
     *out_document = NULL;
-    if (source == NULL) return TRYTR_STATUS_INVALID_ARGUMENT;
+    if (source == NULL || (overrides == NULL && override_count != 0u)) {
+        return TRYTR_STATUS_INVALID_ARGUMENT;
+    }
 
     TrytrDocument *document = calloc(1, sizeof(*document));
     if (document == NULL) return TRYTR_STATUS_NO_MEMORY;
 
-    document->parsed = trytr_parser_parse(source, length, &document->output);
+    document->parsed = trytr_parser_parse_with_parameters(
+        source, length, overrides, override_count, &document->output);
     *out_document = document;
     return document_status(document);
+}
+
+size_t trytr_document_parameter_count(const TrytrDocument *document)
+{
+    return document == NULL ? 0u : document->output.parameter_count;
+}
+
+const TrytrDocumentParameter *trytr_document_parameter_at(
+    const TrytrDocument *document,
+    size_t index
+)
+{
+    if (document == NULL || index >= document->output.parameter_count) return NULL;
+    const TrytrParameterEntry *entry = document->output.parameters;
+    while (index-- != 0u && entry != NULL) entry = entry->next;
+    return entry == NULL ? NULL : &entry->parameter;
 }
 
 TrytrStatus trytr_document_validate(TrytrDocument *document)

@@ -1,7 +1,7 @@
 #include "svg_render.h"
 
 #include "limits.h"
-#include "math_1.h"
+#include "trytr/math/curve.h"
 #include "plot.h"
 
 #include <inttypes.h>

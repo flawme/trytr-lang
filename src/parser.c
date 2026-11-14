@@ -4,6 +4,8 @@
 #include "plot.h"
 #include "polygon.h"
 #include "trytr/document.h"
+#include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 
 typedef struct TrytrParser {
@@ -13,6 +15,10 @@ typedef struct TrytrParser {
     size_t node_count;
     size_t expression_operations;
     size_t group_depth;
+    const TrytrParameterOverride *overrides;
+    size_t override_count;
+    bool parameter_bounds_expression;
+    bool content_started;
     bool aborted;
 } TrytrParser;
 
@@ -23,6 +29,17 @@ static bool identifier_is(TrytrToken token, const char *name)
 {
     return token.kind == TRYTR_TOKEN_IDENTIFIER && token.length == strlen(name) &&
            memcmp(token.lexeme, name, token.length) == 0;
+}
+
+static TrytrParameterEntry *find_parameter(TrytrParser *parser,
+                                           const char *id, size_t id_length)
+{
+    for (TrytrParameterEntry *entry = parser->output->parameters;
+         entry != NULL; entry = entry->next) {
+        if (strlen(entry->parameter.id) == id_length &&
+            memcmp(entry->parameter.id, id, id_length) == 0) return entry;
+    }
+    return NULL;
 }
 
 static void error(TrytrParser *parser, const char *code, TrytrSourceLocation location, const char *message)
@@ -77,6 +94,101 @@ static char *copy_token(TrytrParser *parser, TrytrToken token)
         parser->aborted = true;
     }
     return copy;
+}
+
+static bool parameter_identifier_start(char value)
+{
+    return (value >= 'A' && value <= 'Z') ||
+           (value >= 'a' && value <= 'z') || value == '_';
+}
+
+static bool parameter_identifier_continue(char value)
+{
+    return parameter_identifier_start(value) || (value >= '0' && value <= '9') ||
+           value == '-';
+}
+
+static bool expand_parameter_references(
+    TrytrParser *parser,
+    const char *source,
+    size_t source_length,
+    size_t output_limit,
+    TrytrSourceLocation location,
+    char **out_text,
+    size_t *out_length
+)
+{
+    if (out_text == NULL || out_length == NULL || (source == NULL && source_length != 0u)) {
+        return false;
+    }
+    size_t expanded_length = 0u;
+    for (size_t index = 0u; index < source_length;) {
+        size_t consumed = 1u;
+        size_t replacement_length = 1u;
+        char number[32];
+        if (source[index] == '#' && index + 1u < source_length &&
+            parameter_identifier_start(source[index + 1u]) &&
+            (index == 0u || source[index - 1u] != '\\')) {
+            size_t end = index + 2u;
+            while (end < source_length && parameter_identifier_continue(source[end])) ++end;
+            TrytrParameterEntry *entry = find_parameter(parser, source + index + 1u,
+                                                        end - index - 1u);
+            if (entry == NULL) {
+                error(parser, "TRYTR-E-PARAMETER", location,
+                      "unknown parameter reference; declare it before use");
+                return false;
+            }
+            const int count = snprintf(number, sizeof(number), "%" PRId64,
+                                       entry->parameter.value);
+            if (count < 0 || (size_t)count >= sizeof(number)) {
+                error(parser, "TRYTR-E-PARAMETER", location,
+                      "parameter value could not be formatted");
+                return false;
+            }
+            consumed = end - index;
+            replacement_length = (size_t)count;
+        }
+        if (replacement_length > output_limit - expanded_length) {
+            error(parser, "TRYTR-E-LIMIT", location,
+                  "parameter expansion exceeds the document text limit");
+            return false;
+        }
+        expanded_length += replacement_length;
+        index += consumed;
+    }
+
+    char *expanded = trytr_arena_alloc(&parser->output->arena, expanded_length + 1u);
+    if (expanded == NULL) {
+        error(parser, "TRYTR-E-MEMORY", location,
+              "unable to expand parameter references");
+        parser->aborted = true;
+        return false;
+    }
+    size_t source_index = 0u;
+    size_t target_index = 0u;
+    while (source_index < source_length) {
+        if (source[source_index] == '#' && source_index + 1u < source_length &&
+            parameter_identifier_start(source[source_index + 1u]) &&
+            (source_index == 0u || source[source_index - 1u] != '\\')) {
+            size_t end = source_index + 2u;
+            while (end < source_length && parameter_identifier_continue(source[end])) ++end;
+            TrytrParameterEntry *entry = find_parameter(parser, source + source_index + 1u,
+                                                        end - source_index - 1u);
+            char number[32];
+            const int count = snprintf(number, sizeof(number), "%" PRId64,
+                                       entry->parameter.value);
+            const size_t count_size = (size_t)count;
+            memcpy(expanded + target_index, number, count_size);
+            target_index += count_size;
+            source_index = end;
+        } else {
+            expanded[target_index++] = source[source_index++];
+        }
+    }
+    expanded[target_index] = '\0';
+    *out_text = expanded;
+    *out_length = target_index;
+    return true;
 }
 
 static void skip_element(TrytrParser *parser)
@@ -185,6 +297,32 @@ static bool parse_expression_primary(TrytrParser *parser, size_t depth, int64_t 
             return false;
         }
         *out_value = (int64_t)magnitude;
+        advance(parser);
+        return true;
+    }
+    if (parser->current.kind == TRYTR_TOKEN_HASH) {
+        const TrytrSourceLocation location = parser->current.location;
+        advance(parser);
+        if (parser->current.kind != TRYTR_TOKEN_IDENTIFIER) {
+            error(parser, "TRYTR-E-PARAMETER", location,
+                  "expected a parameter name after '#'");
+            return false;
+        }
+        TrytrToken name = parser->current;
+        TrytrParameterEntry *entry = find_parameter(parser, name.lexeme, name.length);
+        if (entry == NULL) {
+            error(parser, "TRYTR-E-PARAMETER", location,
+                  "unknown parameter reference; declare it before use");
+            advance(parser);
+            return false;
+        }
+        if (parser->parameter_bounds_expression) {
+            error(parser, "TRYTR-E-PARAMETER", location,
+                  "parameter bounds and defaults cannot reference other parameters");
+            advance(parser);
+            return false;
+        }
+        *out_value = entry->parameter.value;
         advance(parser);
         return true;
     }
@@ -594,7 +732,217 @@ static void parse_optional_id(TrytrParser *parser, TrytrNode *node)
         return;
     }
     node->id = copy_token(parser, parser->current);
+    if (node->id != NULL && find_parameter(parser, node->id, strlen(node->id)) != NULL) {
+        error(parser, "TRYTR-E-DUPLICATE-ID", location,
+              "parameter and element identifiers must be unique");
+    }
     advance(parser);
+}
+
+static bool parameter_value_is_valid(int64_t minimum, int64_t maximum,
+                                     int64_t step, int64_t value)
+{
+    if (minimum < -TRYTR_DEFAULT_COORDINATE_LIMIT ||
+        maximum > TRYTR_DEFAULT_COORDINATE_LIMIT || minimum > maximum ||
+        step < 1 || step > TRYTR_DEFAULT_COORDINATE_LIMIT ||
+        value < minimum || value > maximum) return false;
+    return (value - minimum) % step == 0;
+}
+
+static bool parse_parameter_expression(TrytrParser *parser, int64_t *out_value)
+{
+    parser->parameter_bounds_expression = true;
+    const bool parsed = parse_expression(parser, 0u, 0u, out_value);
+    parser->parameter_bounds_expression = false;
+    return parsed;
+}
+
+static void parse_parameter_element(TrytrParser *parser, TrytrSourceLocation location,
+                                    TrytrNode *parent)
+{
+    if (parent->kind != TRYTR_NODE_DOCUMENT) {
+        error(parser, "TRYTR-E-PARAMETER", location,
+              "parameters can only be declared directly inside @document");
+        skip_element(parser);
+        return;
+    }
+    if (parser->content_started) {
+        error(parser, "TRYTR-E-PARAMETER", location,
+              "declare parameters before document content");
+        skip_element(parser);
+        return;
+    }
+    if (parser->output->parameter_count >= TRYTR_DEFAULT_PARAMETER_LIMIT) {
+        error(parser, "TRYTR-E-LIMIT", location, "document parameter limit exceeded");
+        parser->aborted = true;
+        return;
+    }
+    if (parser->current.kind != TRYTR_TOKEN_HASH) {
+        error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+              "a parameter requires a stable identifier such as #gain");
+        skip_element(parser);
+        return;
+    }
+    const TrytrSourceLocation id_location = parser->current.location;
+    advance(parser);
+    if (parser->current.kind != TRYTR_TOKEN_IDENTIFIER) {
+        error(parser, "TRYTR-E-PARAMETER", id_location,
+              "expected a parameter identifier after '#'");
+        skip_element(parser);
+        return;
+    }
+    const TrytrToken id_token = parser->current;
+    char *id = copy_token(parser, id_token);
+    if (id == NULL) return;
+    if (find_parameter(parser, id, strlen(id)) != NULL) {
+        error(parser, "TRYTR-E-DUPLICATE-ID", id_location,
+              "duplicate parameter identifier");
+    }
+    advance(parser);
+    if (parser->current.kind != TRYTR_TOKEN_LPAREN) {
+        error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+              "expected parameter bounds and default in parentheses");
+        skip_element(parser);
+        return;
+    }
+    advance(parser);
+
+    int64_t minimum = 0;
+    int64_t maximum = 0;
+    int64_t default_value = 0;
+    int64_t step = 0;
+    unsigned int seen = 0u;
+    while (!parser->aborted && parser->current.kind != TRYTR_TOKEN_EOF &&
+           parser->current.kind != TRYTR_TOKEN_RPAREN) {
+        if (parser->current.kind != TRYTR_TOKEN_IDENTIFIER) {
+            error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+                  "expected min, max, value, or step in a parameter declaration");
+            skip_positional(parser);
+            return;
+        }
+        const TrytrToken name = parser->current;
+        unsigned int flag = 0u;
+        int64_t *destination = NULL;
+        if (identifier_is(name, "min")) { flag = 1u; destination = &minimum; }
+        else if (identifier_is(name, "max")) { flag = 2u; destination = &maximum; }
+        else if (identifier_is(name, "value")) { flag = 4u; destination = &default_value; }
+        else if (identifier_is(name, "step")) { flag = 8u; destination = &step; }
+        advance(parser);
+        if (parser->current.kind != TRYTR_TOKEN_COLON) {
+            error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+                  "expected ':' after parameter option name");
+            skip_positional(parser);
+            return;
+        }
+        advance(parser);
+        int64_t option_value = 0;
+        if (!parse_parameter_expression(parser, &option_value)) {
+            skip_positional(parser);
+            return;
+        }
+        if (flag == 0u) {
+            error(parser, "TRYTR-E-PROPERTY", name.location,
+                  "unknown parameter option");
+        } else if ((seen & flag) != 0u) {
+            error(parser, "TRYTR-E-PROPERTY", name.location,
+                  "duplicate parameter option");
+        } else {
+            seen |= flag;
+            *destination = option_value;
+        }
+        if (parser->current.kind == TRYTR_TOKEN_COMMA) {
+            advance(parser);
+        } else if (parser->current.kind != TRYTR_TOKEN_RPAREN) {
+            error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+                  "expected ',' or ')' after parameter option");
+            skip_positional(parser);
+            return;
+        }
+    }
+    if (parser->current.kind == TRYTR_TOKEN_RPAREN) advance(parser);
+    else {
+        error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+              "unterminated parameter declaration");
+        return;
+    }
+    if (seen != 15u) {
+        error(parser, "TRYTR-E-PARAMETER", id_location,
+              "parameter requires min, max, value, and step");
+    }
+    if (!parameter_value_is_valid(minimum, maximum, step, default_value)) {
+        error(parser, "TRYTR-E-PARAMETER-RANGE", id_location,
+              "parameter bounds, default, or step are invalid");
+    }
+    if (parser->current.kind != TRYTR_TOKEN_LBRACE) {
+        error(parser, "TRYTR-E-PARAMETER", parser->current.location,
+              "expected a label block after parameter options");
+        skip_element(parser);
+        return;
+    }
+    char *label = NULL;
+    size_t label_length = 0u;
+    const size_t diagnostics_before = parser->output->diagnostics.count;
+    if (!trytr_lexer_raw_block(&parser->lexer, &parser->output->arena,
+                               &label, &label_length)) {
+        if (parser->output->diagnostics.count == diagnostics_before) {
+            parser->output->out_of_memory = true;
+        }
+        parser->current = trytr_lexer_next(&parser->lexer);
+        skip_element(parser);
+        return;
+    }
+    parser->current = trytr_lexer_next(&parser->lexer);
+
+    int64_t value = default_value;
+    size_t matching_overrides = 0u;
+    for (size_t index = 0u; index < parser->override_count; ++index) {
+        const TrytrParameterOverride *override = &parser->overrides[index];
+        if (override->id != NULL && strcmp(override->id, id) == 0) {
+            ++matching_overrides;
+            value = override->value;
+        }
+    }
+    if (matching_overrides > 1u) {
+        error(parser, "TRYTR-E-PARAMETER", id_location,
+              "a parameter override was supplied more than once");
+    }
+    if (matching_overrides != 0u &&
+        !parameter_value_is_valid(minimum, maximum, step, value)) {
+        error(parser, "TRYTR-E-PARAMETER-RANGE", id_location,
+              "parameter override is outside its range or step interval");
+        value = default_value;
+    }
+    if (label_length == 0u) {
+        error(parser, "TRYTR-E-PARAMETER", id_location,
+              "parameter label must not be empty");
+    }
+
+    TrytrParameterEntry *entry = trytr_arena_calloc(
+        &parser->output->arena, 1u, sizeof(*entry));
+    if (entry == NULL) {
+        error(parser, "TRYTR-E-MEMORY", id_location,
+              "unable to allocate parameter declaration");
+        parser->aborted = true;
+        return;
+    }
+    entry->parameter = (TrytrDocumentParameter){
+        .id = id,
+        .label = label,
+        .label_length = label_length,
+        .minimum = minimum,
+        .maximum = maximum,
+        .default_value = default_value,
+        .value = value,
+        .step = step,
+        .location = location
+    };
+    if (parser->output->parameters_tail == NULL) {
+        parser->output->parameters = entry;
+    } else {
+        parser->output->parameters_tail->next = entry;
+    }
+    parser->output->parameters_tail = entry;
+    ++parser->output->parameter_count;
 }
 
 static void skip_group_contents(TrytrParser *parser)
@@ -673,6 +1021,15 @@ static void parse_text_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
         return;
     }
     parser->current = trytr_lexer_next(&parser->lexer);
+    char *expanded = NULL;
+    size_t expanded_length = 0u;
+    if (!expand_parameter_references(parser, node->text, node->text_length,
+                                     TRYTR_DEFAULT_EXECUTION_TEXT_LIMIT,
+                                     node->location, &expanded, &expanded_length)) {
+        return;
+    }
+    node->text = expanded;
+    node->text_length = expanded_length;
     trytr_ast_add_child(root, node);
 }
 
@@ -851,6 +1208,18 @@ static void parse_plot_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
     }
     parser->current = trytr_lexer_next(&parser->lexer);
 
+    char *expanded_points = NULL;
+    size_t expanded_points_length = 0u;
+    if (!expand_parameter_references(parser, node->text, node->text_length,
+                                     TRYTR_DEFAULT_PLOT_BYTE_LIMIT,
+                                     raw_location, &expanded_points,
+                                     &expanded_points_length)) {
+        trytr_ast_add_child(root, node);
+        return;
+    }
+    node->text = expanded_points;
+    node->text_length = expanded_points_length;
+
     TrytrPlotAnalysis analysis;
     size_t error_offset = 0u;
     const TrytrPlotStatus status = trytr_plot_analyze(
@@ -890,6 +1259,11 @@ static void parse_element(TrytrParser *parser, TrytrNode *root)
     }
     TrytrToken name = parser->current;
     advance(parser);
+    if (identifier_is(name, "param")) {
+        parse_parameter_element(parser, location, root);
+        return;
+    }
+    parser->content_started = true;
     TrytrNodeKind kind;
     bool text_element = false;
     bool path_element = false;
@@ -1107,7 +1481,13 @@ static TrytrNode *parse_document(TrytrParser *parser)
     return root;
 }
 
-bool trytr_parser_parse(const char *source, size_t length, TrytrParserOutput *output)
+bool trytr_parser_parse_with_parameters(
+    const char *source,
+    size_t length,
+    const TrytrParameterOverride *overrides,
+    size_t override_count,
+    TrytrParserOutput *output
+)
 {
     if (output == NULL) return false;
     memset(output, 0, sizeof(*output));
@@ -1122,14 +1502,50 @@ bool trytr_parser_parse(const char *source, size_t length, TrytrParserOutput *ou
         return false;
     }
     if (!trytr_utf8_validate(source, length, &output->diagnostics)) return false;
+    if ((overrides == NULL && override_count != 0u) ||
+        override_count > TRYTR_DEFAULT_PARAMETER_LIMIT) {
+        (void)trytr_diagnostic_add(&output->diagnostics, TRYTR_DIAGNOSTIC_ERROR,
+            override_count > TRYTR_DEFAULT_PARAMETER_LIMIT ? "TRYTR-E-LIMIT" : "TRYTR-E-PARAMETER",
+            (TrytrSourceLocation){0u, 1u, 1u},
+            "parameter overrides are invalid or exceed the parameter limit");
+        return false;
+    }
     TrytrParser parser;
     memset(&parser, 0, sizeof(parser));
     parser.output = output;
+    parser.overrides = overrides;
+    parser.override_count = override_count;
     trytr_lexer_init(&parser.lexer, source, length, &output->diagnostics);
     parser.current = trytr_lexer_next(&parser.lexer);
     output->root = parse_document(&parser);
+    for (size_t index = 0u; index < override_count; ++index) {
+        if (overrides[index].id == NULL || overrides[index].id[0] == '\0') {
+            (void)trytr_diagnostic_add(&output->diagnostics, TRYTR_DIAGNOSTIC_ERROR,
+                "TRYTR-E-PARAMETER", (TrytrSourceLocation){0u, 1u, 1u},
+                "parameter override requires a non-empty identifier");
+            continue;
+        }
+        bool found = false;
+        for (TrytrParameterEntry *entry = output->parameters;
+             entry != NULL; entry = entry->next) {
+            if (strcmp(entry->parameter.id, overrides[index].id) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            (void)trytr_diagnostic_add(&output->diagnostics, TRYTR_DIAGNOSTIC_ERROR,
+                "TRYTR-E-PARAMETER", (TrytrSourceLocation){0u, 1u, 1u},
+                "override refers to an undeclared parameter");
+        }
+    }
     return output->root != NULL && !parser.aborted && !output->out_of_memory &&
            !trytr_diagnostic_has_errors(&output->diagnostics);
+}
+
+bool trytr_parser_parse(const char *source, size_t length, TrytrParserOutput *output)
+{
+    return trytr_parser_parse_with_parameters(source, length, NULL, 0u, output);
 }
 
 void trytr_parser_output_destroy(TrytrParserOutput *output)

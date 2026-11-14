@@ -38,6 +38,24 @@ function(trytr_target_defaults target)
 endfunction()
 
 add_library(
+    trytr_math
+    STATIC
+        src/math/real.c
+        src/math/complex.c
+        src/math/vector2.c
+        src/math/matrix2.c
+        src/math/point2.c
+        src/math/affine2.c
+        src/math/curve_interpolate.c
+        src/math/curve_raster.c
+)
+target_include_directories(trytr_math PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+if(UNIX)
+    target_link_libraries(trytr_math PUBLIC m)
+endif()
+trytr_target_defaults(trytr_math)
+
+add_library(
     trytr_core
     STATIC
         src/trytr.c
@@ -46,7 +64,6 @@ add_library(
         src/ast.c
         src/lexer.c
         src/path.c
-        src/math_1.c
         src/polygon.c
         src/plot.c
         src/parser.c
@@ -59,9 +76,7 @@ add_library(
         src/document.c
 )
 target_include_directories(trytr_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-if(UNIX)
-    target_link_libraries(trytr_core PUBLIC m)
-endif()
+target_link_libraries(trytr_core PUBLIC trytr_math)
 trytr_target_defaults(trytr_core)
 
 add_executable(trytr src/main.c)
@@ -79,12 +94,27 @@ if(BUILD_TESTING)
         add_test(NAME ${test_name} COMMAND ${target})
     endfunction()
 
+    function(trytr_add_math_test target test_name source)
+        add_executable(${target} ${source})
+        target_link_libraries(${target} PRIVATE trytr_math)
+        trytr_target_defaults(${target})
+        add_test(NAME ${test_name} COMMAND ${target})
+    endfunction()
+
     trytr_add_test(trytr_version_tests trytr.version tests/test_version.c)
     trytr_add_test(trytr_lexer_tests trytr.lexer tests/test_lexer.c)
     trytr_add_test(trytr_parser_tests trytr.parser tests/test_parser.c)
     trytr_add_test(trytr_expression_tests trytr.expressions tests/test_expressions.c)
+    trytr_add_test(trytr_parameter_tests trytr.parameters tests/test_parameters.c)
     trytr_add_test(trytr_path_tests trytr.path tests/test_path.c)
-    trytr_add_test(trytr_math_1_tests trytr.math_1 tests/test_math_1.c)
+    trytr_add_math_test(trytr_math_real_tests trytr.math.real tests/test_math_real.c)
+    trytr_add_math_test(trytr_math_complex_tests trytr.math.complex tests/test_math_complex.c)
+    trytr_add_math_test(trytr_math_vector2_tests trytr.math.vector2 tests/test_math_vector2.c)
+    trytr_add_math_test(trytr_math_matrix2_tests trytr.math.matrix2 tests/test_math_matrix2.c)
+    trytr_add_math_test(trytr_math_point2_tests trytr.math.point2 tests/test_math_point2.c)
+    trytr_add_math_test(trytr_math_affine2_tests trytr.math.affine2 tests/test_math_affine2.c)
+    trytr_add_math_test(trytr_math_curve_interpolate_tests trytr.math.curve.interpolate tests/test_math_curve_interpolate.c)
+    trytr_add_math_test(trytr_math_curve_raster_tests trytr.math.curve.raster tests/test_math_curve_raster.c)
     trytr_add_test(trytr_polygon_tests trytr.polygon tests/test_polygon.c)
     trytr_add_test(trytr_plot_tests trytr.plot tests/test_plot.c)
     trytr_add_test(trytr_roundrect_tests trytr.roundrect tests/test_roundrect.c)
@@ -128,6 +158,15 @@ if(BUILD_TESTING)
     set_tests_properties(
         trytr.cli.dump_group_events
         PROPERTIES PASS_REGULAR_EXPRESSION "group-begin"
+    )
+    add_test(
+        NAME trytr.cli.parameter_override
+        COMMAND trytr --set offset=8 --dump-ir
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/parameters.trytr"
+    )
+    set_tests_properties(
+        trytr.cli.parameter_override
+        PROPERTIES PASS_REGULAR_EXPRESSION "x=8 y=0 width=10 height=10"
     )
     add_test(
         NAME trytr.cli.proof

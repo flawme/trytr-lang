@@ -1,5 +1,5 @@
 #include "text_render_internal.h"
-#include "math_1.h"
+#include "trytr/math/curve.h"
 #include "plot.h"
 
 #include <stdlib.h>

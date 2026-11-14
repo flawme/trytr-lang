@@ -29,6 +29,23 @@ typedef struct TrytrSourceLocation {
     size_t column;
 } TrytrSourceLocation;
 
+typedef struct TrytrParameterOverride {
+    const char *id;
+    int64_t value;
+} TrytrParameterOverride;
+
+typedef struct TrytrDocumentParameter {
+    const char *id;
+    const char *label;
+    size_t label_length;
+    int64_t minimum;
+    int64_t maximum;
+    int64_t default_value;
+    int64_t value;
+    int64_t step;
+    TrytrSourceLocation location;
+} TrytrDocumentParameter;
+
 typedef enum TrytrElementKind {
     TRYTR_ELEMENT_HEADING = 0,
     TRYTR_ELEMENT_TEXT,
@@ -142,6 +159,26 @@ TrytrStatus trytr_document_parse(
     const char *source,
     size_t length,
     TrytrDocument **out_document
+);
+
+/*
+ * Parses a document with explicit values for declared parameters. Overrides
+ * are data, never source text. Each supplied ID must be declared exactly once
+ * and each value must lie on that parameter's bounded step interval.
+ */
+TrytrStatus trytr_document_parse_with_parameters(
+    const char *source,
+    size_t length,
+    const TrytrParameterOverride *overrides,
+    size_t override_count,
+    TrytrDocument **out_document
+);
+
+size_t trytr_document_parameter_count(const TrytrDocument *document);
+/* The returned descriptor and its strings live until the document is destroyed. */
+const TrytrDocumentParameter *trytr_document_parameter_at(
+    const TrytrDocument *document,
+    size_t index
 );
 
 TrytrStatus trytr_document_validate(TrytrDocument *document);

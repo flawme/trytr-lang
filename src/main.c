@@ -2,9 +2,11 @@
 #include "trytr/trytr.h"
 #include "svg_render.h"
 #include "text_render.h"
+#include "limits.h"
 
 #include <stdio.h>
 #include <inttypes.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,7 +14,13 @@
 
 static void print_usage(FILE *stream)
 {
-    fputs("usage: trytr [--version] [--help] [--dump-ir|--render-svg|--render-text] [FILE|-]\n", stream);
+    fputs("usage: trytr [--version] [--help] [--set ID=INTEGER]...\n"
+          "             [--dump-ir|--render-svg|--render-text] [FILE|-]\n", stream);
+}
+
+static void free_override_ids(char **ids, size_t count)
+{
+    for (size_t index = 0u; index < count; ++index) free(ids[index]);
 }
 
 static bool ignore_element(const TrytrDocumentElement *element, void *user_data)
@@ -163,10 +171,13 @@ static int read_source(FILE *stream, char **out_source, size_t *out_length)
 }
 
 static int process_source(const char *name, const char *source, size_t length,
-                          bool dump_ir, bool render_svg, bool render_text)
+                          bool dump_ir, bool render_svg, bool render_text,
+                          const TrytrParameterOverride *overrides,
+                          size_t override_count)
 {
     TrytrDocument *document = NULL;
-    TrytrStatus status = trytr_document_parse(source, length, &document);
+    TrytrStatus status = trytr_document_parse_with_parameters(
+        source, length, overrides, override_count, &document);
     if (document == NULL) {
         fprintf(stderr, "trytr: %s\n", trytr_status_string(status));
         return status == TRYTR_STATUS_NO_MEMORY ? 2 : 1;
@@ -227,44 +238,89 @@ int main(int argc, char **argv)
         print_usage(stdout);
         return 0;
     }
-    if (argc > 3) {
-        print_usage(stderr);
-        return 2;
-    }
-
     bool dump_ir = false;
     bool render_svg = false;
     bool render_text = false;
     const char *input_path = NULL;
+    TrytrParameterOverride overrides[TRYTR_DEFAULT_PARAMETER_LIMIT];
+    char *override_ids[TRYTR_DEFAULT_PARAMETER_LIMIT] = {0};
+    size_t override_count = 0u;
+    int option_error = 0;
     for (int index = 1; index < argc; ++index) {
-        if (strcmp(argv[index], "--dump-ir") == 0) {
+        if (strcmp(argv[index], "--set") == 0) {
+            if (index + 1 >= argc || override_count >= TRYTR_DEFAULT_PARAMETER_LIMIT) {
+                fputs("trytr: --set requires ID=INTEGER and supports at most 128 values\n", stderr);
+                option_error = 2;
+                break;
+            }
+            const char *assignment = argv[++index];
+            const char *separator = strchr(assignment, '=');
+            if (separator == NULL || separator == assignment || separator[1] == '\0') {
+                fputs("trytr: parameter overrides must use ID=INTEGER\n", stderr);
+                option_error = 2;
+                break;
+            }
+            errno = 0;
+            char *value_end = NULL;
+            const intmax_t parsed_value = strtoimax(separator + 1, &value_end, 10);
+            if (errno == ERANGE || value_end == separator + 1 || *value_end != '\0' ||
+                parsed_value < INT64_MIN || parsed_value > INT64_MAX) {
+                fputs("trytr: parameter override values must be signed 64-bit integers\n", stderr);
+                option_error = 2;
+                break;
+            }
+            const size_t id_length = (size_t)(separator - assignment);
+            char *id = malloc(id_length + 1u);
+            if (id == NULL) {
+                fputs("trytr: unable to allocate parameter override\n", stderr);
+                option_error = 2;
+                break;
+            }
+            memcpy(id, assignment, id_length);
+            id[id_length] = '\0';
+            override_ids[override_count] = id;
+            overrides[override_count] = (TrytrParameterOverride){
+                .id = id,
+                .value = (int64_t)parsed_value
+            };
+            ++override_count;
+        } else if (strcmp(argv[index], "--dump-ir") == 0) {
             if (dump_ir || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
-                return 2;
+                option_error = 2;
+                break;
             }
             dump_ir = true;
         } else if (strcmp(argv[index], "--render-svg") == 0) {
             if (dump_ir || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
-                return 2;
+                option_error = 2;
+                break;
             }
             render_svg = true;
         } else if (strcmp(argv[index], "--render-text") == 0) {
             if (dump_ir || render_svg || render_text) {
                 fputs("trytr: choose only one output mode\n", stderr);
-                return 2;
+                option_error = 2;
+                break;
             }
             render_text = true;
         } else if (argv[index][0] == '-' && argv[index][1] == '-') {
             fprintf(stderr, "trytr: unknown option %s\n", argv[index]);
             print_usage(stderr);
-            return 2;
+            option_error = 2;
+            break;
         } else if (input_path == NULL) {
             input_path = argv[index];
         } else {
             print_usage(stderr);
-            return 2;
+            option_error = 2;
+            break;
         }
+    }
+    if (option_error != 0) {
+        free_override_ids(override_ids, override_count);
+        return option_error;
     }
 
     const char *name = input_path == NULL ? "<stdin>" : input_path;
@@ -273,6 +329,7 @@ int main(int argc, char **argv)
         stream = fopen(input_path, "rb");
         if (stream == NULL) {
             fprintf(stderr, "trytr: unable to open %s\n", input_path);
+            free_override_ids(override_ids, override_count);
             return 2;
         }
     } else if (input_path != NULL) {
@@ -283,13 +340,18 @@ int main(int argc, char **argv)
     size_t length = 0;
     int result = read_source(stream, &source, &length);
     if (stream != stdin) fclose(stream);
-    if (result != 0) return result;
+    if (result != 0) {
+        free_override_ids(override_ids, override_count);
+        return result;
+    }
 
-    result = process_source(name, source, length, dump_ir, render_svg, render_text);
+    result = process_source(name, source, length, dump_ir, render_svg, render_text,
+                            overrides, override_count);
     if (fflush(stdout) != 0) {
         fputs("trytr: failed to write output\n", stderr);
         if (result == 0) result = 2;
     }
     free(source);
+    free_override_ids(override_ids, override_count);
     return result;
 }

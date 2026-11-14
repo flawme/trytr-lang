@@ -16,6 +16,20 @@ The language is designed to provide one unified representation for visual docume
 
 It replaces the need to combine unrelated formats and technologies for ordinary document rendering, including separate markup, mathematics, charting, diagramming and graphics systems.
 
+The model-facing document is a semantic handoff: an AI describes content,
+relationships, and permitted interactions, then the host chooses a renderer
+and presents the result. SVG, text chat, native UI, print, or a future backend
+are output adapters; none defines the source language. A document may, for
+example, declare a bounded value that a developer chooses to expose to the
+reader. A change to that value should update every dependent equation, plot,
+label, or diagram through the same document model.
+
+Avoiding a mandatory TeX installation is a core runtime constraint. Trytr will
+provide its own bounded mathematical model and common notation support rather
+than embedding a full TeX engine. It does not need to reproduce all TeX syntax
+or compatibility behavior. Optional specialized math capabilities may remain
+modular, just like other domain-specific features.
+
 The language should be capable of representing:
 
 - Rich text and structured documents.
@@ -57,6 +71,7 @@ The language is not intended to:
 - Support native 3D scenes, meshes, cameras or lighting.
 - Automatically access arbitrary files or networks.
 - Provide unlimited computation.
+- Require a full TeX distribution or reproduce all of TeX for compatibility.
 
 Pre-rendered images of 3D content may be included as ordinary raster images.
 
@@ -130,6 +145,23 @@ The interpreter must be:
 - Compatible with single-threaded execution.
 
 There is no requirement for JIT compilation or native machine-code generation.
+
+## 2.4 Semantic values and rendering backends
+
+Documents should preserve the meaning of their content until a backend needs
+to present it. A formula remains a typed expression; a dataset remains
+structured data; a diagram retains its elements and relationships. A backend
+derives the coordinates, text, or native controls it needs from that shared
+model. Authors and AI systems should not need to precompute SVG paths just to
+describe a curve or bake every output into a raster image.
+
+An interactive document changes declared, typed state values. The runtime
+recomputes dependent expressions and content, while the host decides which
+declared inputs to expose. For example, a single bounded coefficient could be
+used by an equation, a sampled function plot, and an explanatory label; the
+three outputs stay in sync when the host permits the user to change it. This is
+one use of the value model, not a chart-specific facility. The same dependency
+model can drive tables, diagrams, and other supported content.
 
 ---
 
@@ -362,6 +394,19 @@ The bounded expression engine supports:
 - Custom bounded functions.
 
 Specialized mathematical operations may be supplied by optional modules.
+
+The C implementation keeps numerical domains in a separate `trytr_math`
+library. Its public headers and source files are grouped by concept: real
+scalars, complex values, points, 2D vectors, 2 by 2 linear maps, affine
+transforms, and curve geometry. Points and vectors are separate types. A 2D
+vector remains a vector type even though it can be encoded as a complex number;
+the bridge is explicit, and rotation uses multiplication by a unit complex
+value. Dot and cross products keep their vector meanings. This avoids making
+one overloaded representation carry unrelated operations and lets the document
+core depend on a small set of typed modules. New domains should add a focused
+module when a concrete language or renderer feature needs it, rather than
+growing a generic expression grab-bag. These C APIs are implementation
+foundations; document authors cannot yet evaluate them in `@math` blocks.
 
 ## 6.3 Execution restrictions
 
@@ -952,6 +997,12 @@ Interactivity is supported without converting the language into a general-purpos
 - Playback controls.
 - Chart interaction.
 
+The document may declare a typed value, an allowed range, and a suggested
+control. The host's developer policy determines whether that control is shown
+and which values it may accept. An AI-authored document cannot grant itself
+additional host permissions. A control updates the declared value; it does
+not edit or execute source text.
+
 ## 19.2 State scopes
 
 State can exist at:
@@ -987,6 +1038,12 @@ When state changes, only dependent computations and rendering regions should upd
 Reactive dependency cycles are rejected unless a future specification explicitly defines a safe bounded mechanism.
 
 State updates are processed through deterministic transactions.
+
+Rendering backends consume the same updated document state. A math backend can
+format an expression, a graph backend can sample that expression over a domain,
+and a text backend can provide a concise textual or tabular view. These are
+presentations of shared semantics, not separate AI-generated drawings that can
+drift apart.
 
 ---
 
@@ -1559,6 +1616,18 @@ outlines on a bounded 2-by-3 subcell grid, using Unicode block sextants for
 plots and lines.
 This lets diagrams and graphs appear directly in chat without SVG or image
 content. The text backend does not preserve color or fill styles.
+
+This checkpoint is not the complete product model. The current prototype now
+supports bounded integer parameters and references in integer expressions,
+text and math blocks, and numeric plot coordinates. The C API and CLI can parse the same
+document with a new parameter value, so linked content changes together.
+Parameter changes still require reparsing the full document; the prototype has
+no live host controls, incremental dependency updates, equation evaluation, or
+backend-neutral control events. Those remain necessary for interactive
+explanations such as a developer-approved slider that updates a plotted
+function and its accompanying math together. The MCP preview is only one way
+to display today's output; it does not constrain the language to chat, SVG, or
+graphs.
 
 ## Stage 4 — Layout and typography
 

@@ -5,14 +5,23 @@
 #include "ast.h"
 #include "diagnostic.h"
 #include "limits.h"
+#include "trytr/document.h"
 
 #include <stdbool.h>
 #include <stddef.h>
+
+typedef struct TrytrParameterEntry {
+    TrytrDocumentParameter parameter;
+    struct TrytrParameterEntry *next;
+} TrytrParameterEntry;
 
 typedef struct TrytrParserOutput {
     TrytrArena arena;
     TrytrDiagnosticList diagnostics;
     TrytrNode *root;
+    TrytrParameterEntry *parameters;
+    TrytrParameterEntry *parameters_tail;
+    size_t parameter_count;
     bool initialized;
     bool out_of_memory;
 } TrytrParserOutput;
@@ -20,6 +29,14 @@ typedef struct TrytrParserOutput {
 bool trytr_parser_parse(
     const char *source,
     size_t length,
+    TrytrParserOutput *output
+);
+
+bool trytr_parser_parse_with_parameters(
+    const char *source,
+    size_t length,
+    const TrytrParameterOverride *overrides,
+    size_t override_count,
     TrytrParserOutput *output
 );
 

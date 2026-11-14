@@ -1,0 +1,4 @@
+@document(version:1){
+    @param #offset(min:0,max:20,value:4,step:2){Horizontal offset}
+    @rect #box(#offset,0,10,10)
+}

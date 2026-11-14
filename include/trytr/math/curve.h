@@ -1,13 +1,12 @@
-#ifndef TRYTR_SRC_MATH_1_H
-#define TRYTR_SRC_MATH_1_H
+#ifndef TRYTR_MATH_CURVE_H
+#define TRYTR_MATH_CURVE_H
+
+#include "trytr/math/point2.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef struct TrytrMathPoint {
-    double x;
-    double y;
-} TrytrMathPoint;
+typedef TrytrPoint2 TrytrMathPoint;
 
 typedef struct TrytrMathCubic {
     TrytrMathPoint start;
@@ -24,7 +23,8 @@ typedef void (*TrytrMathSegmentCallback)(TrytrMathPoint start,
                                          void *user_data);
 
 /* Build a C1 curve through every input point. Strictly monotone x data uses
- * shape-preserving PCHIP; other point paths use centripetal Catmull-Rom. */
+ * shape-preserving PCHIP; other point paths use centripetal Catmull-Rom.
+ * Returns false if the resulting control coordinates are not representable. */
 bool trytr_math_build_curve(const TrytrMathPoint *points, size_t point_count,
                             TrytrMathCubic *out_segments);
 
@@ -45,13 +45,17 @@ bool trytr_math_trace_line(TrytrMathPoint start, TrytrMathPoint end,
                            TrytrMathCellCallback callback,
                            void *user_data);
 
-/* Flatten curves to a screen-space tolerance and rasterize with Wu coverage. */
+/* Flatten curves to a screen-space tolerance and rasterize with Wu coverage.
+ * Returns false if bounded subdivision cannot meet the tolerance; callbacks
+ * are invoked only on success. */
 bool trytr_math_rasterize_cubic(const TrytrMathCubic *curve,
                                 double tolerance,
                                 TrytrMathCoverageCallback callback,
                                 void *user_data);
 
-/* Flatten a cubic into connected line segments within screen-space tolerance. */
+/* Flatten a cubic into connected line segments within screen-space tolerance.
+ * Returns false if bounded subdivision cannot meet the tolerance; callbacks
+ * are invoked only on success. */
 bool trytr_math_flatten_cubic(const TrytrMathCubic *curve,
                               double tolerance,
                               TrytrMathSegmentCallback callback,

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" width="720" height="420" viewBox="0 0 720 420" overflow="hidden"><title>trytr document</title>
+<text x="16" y="44" font-family="sans-serif" font-size="28" font-weight="700" font-style="normal" id="title"><tspan x="16" dy="0">A value connected to an equation and a curve</tspan></text>
+<text x="16" y="76" font-family="sans-serif" font-size="16" font-weight="400" font-style="normal" id="description"><tspan x="16" dy="0">Current peak: 38. This value also appears in the equation and curve.</tspan></text>
+<text x="16" y="108" font-family="serif" font-size="18" font-weight="400" font-style="italic" id="equation"><tspan x="16" dy="0">middle value = 38</tspan></text>
+<g id="response">
+<line class="grid" x1="184" y1="128" x2="184" y2="378" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="312" y1="128" x2="312" y2="378" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="440" y1="128" x2="440" y2="378" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="568" y1="128" x2="568" y2="378" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="190" x2="696" y2="190" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="253" x2="696" y2="253" stroke="#e5e7eb" stroke-width="1"/>
+<line class="grid" x1="56" y1="315" x2="696" y2="315" stroke="#e5e7eb" stroke-width="1"/>
+<line class="axis" x1="56" y1="128" x2="56" y2="378" stroke="#888" stroke-width="1"/>
+<line class="axis" x1="56" y1="378" x2="696" y2="378" stroke="#888" stroke-width="1"/>
+<line class="tick" x1="56.000" y1="378.000" x2="56.000" y2="382.000" stroke="#888"/>
+<text class="x-tick" x="56.000" y="395.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">0</text>
+<line class="tick" x1="184.000" y1="378.000" x2="184.000" y2="382.000" stroke="#888"/>
+<text class="x-tick" x="184.000" y="395.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">1</text>
+<line class="tick" x1="312.000" y1="378.000" x2="312.000" y2="382.000" stroke="#888"/>
+<text class="x-tick" x="312.000" y="395.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">2</text>
+<line class="tick" x1="440.000" y1="378.000" x2="440.000" y2="382.000" stroke="#888"/>
+<text class="x-tick" x="440.000" y="395.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">3</text>
+<line class="tick" x1="568.000" y1="378.000" x2="568.000" y2="382.000" stroke="#888"/>
+<text class="x-tick" x="568.000" y="395.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">4</text>
+<line class="tick" x1="696.000" y1="378.000" x2="696.000" y2="382.000" stroke="#888"/>
+<text class="x-tick" x="696.000" y="395.000" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#667085">5</text>
+<line class="tick" x1="52.000" y1="378.000" x2="56.000" y2="378.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="382.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">10</text>
+<line class="tick" x1="52.000" y1="315.500" x2="56.000" y2="315.500" stroke="#888"/>
+<text class="y-tick" x="49.000" y="319.500" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">17</text>
+<line class="tick" x1="52.000" y1="253.000" x2="56.000" y2="253.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="257.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">24</text>
+<line class="tick" x1="52.000" y1="190.500" x2="56.000" y2="190.500" stroke="#888"/>
+<text class="y-tick" x="49.000" y="194.500" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">31</text>
+<line class="tick" x1="52.000" y1="128.000" x2="56.000" y2="128.000" stroke="#888"/>
+<text class="y-tick" x="49.000" y="132.000" text-anchor="end" font-family="sans-serif" font-size="11" fill="#667085">38</text>
+<path d="M 56.000 378.000 C 98.667 378.000 141.333 352.490 184.000 324.429 C 226.667 296.367 269.333 128.000 312.000 128.000 C 354.667 128.000 397.333 288.714 440.000 288.714 C 482.667 288.714 525.333 199.429 568.000 181.571 C 610.667 163.714 653.333 145.857 696.000 145.857" fill="none" stroke="#2563eb" stroke-width="3"/>
+<circle class="data-point" cx="56.000" cy="378.000" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="184.000" cy="324.429" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="312.000" cy="128.000" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="440.000" cy="288.714" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="568.000" cy="181.571" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+<circle class="data-point" cx="696.000" cy="145.857" r="3" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>
+</g>
+</svg>

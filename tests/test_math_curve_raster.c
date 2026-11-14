@@ -1,6 +1,6 @@
 #include "test.h"
 
-#include "math_1.h"
+#include "trytr/math/curve.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -8,119 +8,6 @@
 static bool close_to(double actual, double expected)
 {
     return fabs(actual - expected) < 1e-8;
-}
-
-static bool test_pchip_preserves_monotone_data_and_shared_tangents(void)
-{
-    static const TrytrMathPoint points[] = {
-        {0.0, 0.0}, {1.0, 1.0}, {3.0, 2.0}, {4.0, 6.0}
-    };
-    TrytrMathCubic segments[3];
-    TEST_ASSERT(trytr_math_build_curve(points, 4u, segments));
-
-    for (size_t index = 0u; index < 3u; ++index) {
-        const double low = points[index].y;
-        const double high = points[index + 1u].y;
-        double previous = low;
-        for (int step = 1; step <= 100; ++step) {
-            const TrytrMathPoint sample = trytr_math_cubic_evaluate(
-                &segments[index], (double)step / 100.0);
-            TEST_ASSERT(sample.y >= low - 1e-8 && sample.y <= high + 1e-8);
-            TEST_ASSERT(sample.y >= previous - 1e-8);
-            previous = sample.y;
-        }
-    }
-
-    for (size_t index = 0u; index + 1u < 3u; ++index) {
-        const double dx_left = segments[index].end.x - segments[index].start.x;
-        const double dx_right = segments[index + 1u].end.x - segments[index + 1u].start.x;
-        const double tangent_left = 3.0 *
-            (segments[index].end.y - segments[index].control2.y) / dx_left;
-        const double tangent_right = 3.0 *
-            (segments[index + 1u].control1.y - segments[index + 1u].start.y) / dx_right;
-        TEST_ASSERT(close_to(tangent_left, tangent_right));
-    }
-    return true;
-}
-
-static bool test_two_points_make_a_straight_cubic(void)
-{
-    static const TrytrMathPoint points[] = {{2.0, 4.0}, {8.0, 10.0}};
-    TrytrMathCubic segment;
-    TEST_ASSERT(trytr_math_build_curve(points, 2u, &segment));
-    TEST_ASSERT(close_to(segment.control1.x, 4.0));
-    TEST_ASSERT(close_to(segment.control1.y, 6.0));
-    TEST_ASSERT(close_to(segment.control2.x, 6.0));
-    TEST_ASSERT(close_to(segment.control2.y, 8.0));
-    const TrytrMathPoint middle = trytr_math_cubic_evaluate(&segment, 0.5);
-    TEST_ASSERT(close_to(middle.x, 5.0));
-    TEST_ASSERT(close_to(middle.y, 7.0));
-    return true;
-}
-
-static bool test_quadratic_conversion_is_exact(void)
-{
-    const TrytrMathPoint start = {0.0, 0.0};
-    const TrytrMathPoint control = {5.0, 10.0};
-    const TrytrMathPoint end = {10.0, 0.0};
-    const TrytrMathCubic cubic =
-        trytr_math_quadratic_to_cubic(start, control, end);
-    TEST_ASSERT(close_to(cubic.control1.x, 10.0 / 3.0));
-    TEST_ASSERT(close_to(cubic.control1.y, 20.0 / 3.0));
-    TEST_ASSERT(close_to(cubic.control2.x, 20.0 / 3.0));
-    TEST_ASSERT(close_to(cubic.control2.y, 20.0 / 3.0));
-    for (int step = 0; step <= 20; ++step) {
-        const double t = (double)step / 20.0;
-        const double inverse = 1.0 - t;
-        const TrytrMathPoint quadratic = {
-            inverse * inverse * start.x + 2.0 * inverse * t * control.x + t * t * end.x,
-            inverse * inverse * start.y + 2.0 * inverse * t * control.y + t * t * end.y
-        };
-        const TrytrMathPoint cubic_point = trytr_math_cubic_evaluate(&cubic, t);
-        TEST_ASSERT(close_to(quadratic.x, cubic_point.x));
-        TEST_ASSERT(close_to(quadratic.y, cubic_point.y));
-    }
-    return true;
-}
-
-static bool test_descending_x_uses_monotone_interpolation(void)
-{
-    static const TrytrMathPoint points[] = {
-        {4.0, 8.0}, {2.0, 5.0}, {0.0, 0.0}
-    };
-    TrytrMathCubic segments[2];
-    TEST_ASSERT(trytr_math_build_curve(points, 3u, segments));
-    for (size_t index = 0u; index < 2u; ++index) {
-        double previous = points[index].y;
-        for (int step = 1; step <= 100; ++step) {
-            const TrytrMathPoint sample = trytr_math_cubic_evaluate(
-                &segments[index], (double)step / 100.0);
-            TEST_ASSERT(sample.y <= previous + 1e-8);
-            TEST_ASSERT(sample.y >= points[index + 1u].y - 1e-8);
-            previous = sample.y;
-        }
-    }
-    return true;
-}
-
-static bool test_nonmonotone_paths_keep_each_data_point(void)
-{
-    static const TrytrMathPoint points[] = {
-        {0.0, 0.0}, {2.0, 1.0}, {1.0, 2.0}, {3.0, 0.0}
-    };
-    TrytrMathCubic segments[3];
-    TEST_ASSERT(trytr_math_build_curve(points, 4u, segments));
-    for (size_t index = 0u; index < 3u; ++index) {
-        TEST_ASSERT(close_to(segments[index].start.x, points[index].x));
-        TEST_ASSERT(close_to(segments[index].start.y, points[index].y));
-        TEST_ASSERT(close_to(segments[index].end.x, points[index + 1u].x));
-        TEST_ASSERT(close_to(segments[index].end.y, points[index + 1u].y));
-        TEST_ASSERT(isfinite(segments[index].control1.x));
-        TEST_ASSERT(isfinite(segments[index].control1.y));
-        TEST_ASSERT(isfinite(segments[index].control2.x));
-        TEST_ASSERT(isfinite(segments[index].control2.y));
-    }
-    return true;
 }
 
 typedef struct RasterCapture {
@@ -160,9 +47,12 @@ static bool test_adaptive_rasterizer_samples_curve_with_coverage(void)
 }
 
 typedef struct FlattenCapture {
+    TrytrMathPoint starts[512];
+    TrytrMathPoint ends[512];
     size_t segments;
     TrytrMathPoint previous_end;
     bool continuous;
+    bool within_capacity;
 } FlattenCapture;
 
 static void capture_flat_segment(TrytrMathPoint start, TrytrMathPoint end,
@@ -173,6 +63,12 @@ static void capture_flat_segment(TrytrMathPoint start, TrytrMathPoint end,
         (!close_to(start.x, capture->previous_end.x) ||
          !close_to(start.y, capture->previous_end.y))) {
         capture->continuous = false;
+    }
+    if (capture->segments < sizeof(capture->starts) / sizeof(capture->starts[0])) {
+        capture->starts[capture->segments] = start;
+        capture->ends[capture->segments] = end;
+    } else {
+        capture->within_capacity = false;
     }
     capture->previous_end = end;
     ++capture->segments;
@@ -186,13 +82,74 @@ static bool test_adaptive_flattening_emits_connected_segments(void)
         .control2 = {10.0, 10.0},
         .end = {10.0, 0.0}
     };
-    FlattenCapture capture = {.continuous = true};
+    FlattenCapture capture = {.continuous = true, .within_capacity = true};
     TEST_ASSERT(trytr_math_flatten_cubic(&curve, 0.12,
                                          capture_flat_segment, &capture));
     TEST_ASSERT(capture.segments > 4u);
     TEST_ASSERT(capture.continuous);
+    TEST_ASSERT(capture.within_capacity);
     TEST_ASSERT(close_to(capture.previous_end.x, curve.end.x));
     TEST_ASSERT(close_to(capture.previous_end.y, curve.end.y));
+    return true;
+}
+
+static double point_segment_distance(TrytrMathPoint point,
+                                     TrytrMathPoint start,
+                                     TrytrMathPoint end)
+{
+    const double dx = end.x - start.x;
+    const double dy = end.y - start.y;
+    const double length_squared = dx * dx + dy * dy;
+    if (length_squared == 0.0) return hypot(point.x - start.x, point.y - start.y);
+
+    const double projection = ((point.x - start.x) * dx +
+                               (point.y - start.y) * dy) / length_squared;
+    const double clamped = fmax(0.0, fmin(1.0, projection));
+    const double closest_x = start.x + clamped * dx;
+    const double closest_y = start.y + clamped * dy;
+    return hypot(point.x - closest_x, point.y - closest_y);
+}
+
+static bool test_flattening_respects_screen_space_error(void)
+{
+    const TrytrMathCubic curve = {
+        .start = {0.0, 0.0},
+        .control1 = {40.0, 100.0},
+        .control2 = {60.0, -80.0},
+        .end = {100.0, 10.0}
+    };
+    const double tolerance = 0.35;
+    FlattenCapture capture = {.continuous = true, .within_capacity = true};
+    TEST_ASSERT(trytr_math_flatten_cubic(&curve, tolerance,
+                                         capture_flat_segment, &capture));
+    TEST_ASSERT(capture.segments > 1u);
+    TEST_ASSERT(capture.within_capacity);
+
+    for (int step = 0; step <= 2000; ++step) {
+        const TrytrMathPoint sample = trytr_math_cubic_evaluate(
+            &curve, (double)step / 2000.0);
+        double nearest = INFINITY;
+        for (size_t index = 0u; index < capture.segments; ++index) {
+            nearest = fmin(nearest, point_segment_distance(
+                sample, capture.starts[index], capture.ends[index]));
+        }
+        TEST_ASSERT(nearest <= tolerance + 1e-3);
+    }
+    return true;
+}
+
+static bool test_flattening_rejects_tolerance_beyond_its_budget(void)
+{
+    const TrytrMathCubic curve = {
+        .start = {0.0, 0.0},
+        .control1 = {0.0, 10.0},
+        .control2 = {10.0, 10.0},
+        .end = {10.0, 0.0}
+    };
+    FlattenCapture capture = {.continuous = true, .within_capacity = true};
+    TEST_ASSERT(!trytr_math_flatten_cubic(&curve, 1e-12,
+                                          capture_flat_segment, &capture));
+    TEST_ASSERT_SIZE(0u, capture.segments);
     return true;
 }
 
@@ -275,18 +232,14 @@ static bool test_rasterizer_rejects_invalid_inputs(void)
 }
 
 static const TrytrTestCase tests[] = {
-    {"PCHIP shape and tangent continuity",
-     test_pchip_preserves_monotone_data_and_shared_tangents},
-    {"two point straight cubic", test_two_points_make_a_straight_cubic},
-    {"exact quadratic conversion", test_quadratic_conversion_is_exact},
-    {"descending monotone x", test_descending_x_uses_monotone_interpolation},
-    {"centripetal path fallback", test_nonmonotone_paths_keep_each_data_point},
     {"antialiased line rasterizer", test_line_rasterizer_emits_fractional_coverage},
     {"connected grid line rasterizer", test_connected_grid_line_has_no_cell_gaps},
     {"adaptive antialiased rasterizer",
      test_adaptive_rasterizer_samples_curve_with_coverage},
     {"adaptive connected curve flattening",
      test_adaptive_flattening_emits_connected_segments},
+    {"curve flattening error bound", test_flattening_respects_screen_space_error},
+    {"curve flattening work limit", test_flattening_rejects_tolerance_beyond_its_budget},
     {"invalid math inputs", test_rasterizer_rejects_invalid_inputs}
 };
 

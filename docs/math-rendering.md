@@ -1,7 +1,8 @@
 # Curve and line rendering
 
-`src/math_1.c` owns the curve and line math used by plots and paths. Plot data
-stays in double precision through coordinate mapping and spline construction.
+`src/math/curve_interpolate.c` owns curve construction and evaluation, while
+`src/math/curve_raster.c` owns line rasterization, subdivision, and coverage.
+Plot data stays in double precision through coordinate mapping and spline construction.
 The text renderer maps each curve into character-grid space before subdivision
 so its flatness tolerance reflects the actual output resolution.
 
@@ -33,5 +34,6 @@ backends that support it. SVG keeps decimal Bézier controls as a vector path; t
 [SVG path specification](https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands)
 defines the cubic `C` command used for this output.
 
-Dedicated numerical and rasterization checks live in `tests/test_math_1.c`,
-with end-to-end chart checks in `tests/test_plot.c`.
+Dedicated interpolation and rasterization checks live in
+`tests/test_math_curve_interpolate.c` and `tests/test_math_curve_raster.c`, with
+end-to-end chart checks in `tests/test_plot.c`.

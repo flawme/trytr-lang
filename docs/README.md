@@ -1,5 +1,29 @@
 # Writing Trytr documents
 
+Trytr is intended to be a compact, declarative document language between an AI
+and the app that presents its answer. The document describes meaningful things
+such as text, equations, data, diagrams, and permitted user inputs; a host then
+chooses how to show them. SVG is one current output path, not the language's
+purpose or required output format. A host may also choose direct text, native
+widgets, print, or other renderers as those backends are built.
+
+This is broader than replacing TeX syntax. The goal is to avoid requiring a
+large TeX installation for common mathematical and explanatory content, while
+also representing non-math content in the same small runtime. Math is one
+semantic content type alongside plots, structured data, tables, diagrams, and
+interactive explanations.
+
+An important target is bounded interactivity chosen by the developer. For
+example, an AI-authored explanation could expose a developer-approved numeric
+value; changing it would update the linked formula, plotted data, and labels
+together. The document would describe the allowed control and its range, while
+the host remains responsible for which controls it permits. The prototype
+supports bounded integer parameters and can re-render a document with an
+override, updating its linked math and plot data together. It does not yet
+provide live MCP controls, incremental dependency updates, or evaluated
+functions. This distinction keeps the examples below honest about what works
+today and what the language is being built toward.
+
 Trytr files are plain text documents. A file starts with a versioned document
 block; elements inside it are written in source order:
 
@@ -44,6 +68,15 @@ presentation only: Trytr does not evaluate equations or parse general TeX
 commands. The built-in `\sqrt{...}` form draws a radical and overbar; other
 math text is shown as entered. The built-in `\frac{...}{...}` form lays out a
 smaller raised numerator and lowered denominator around a fraction slash.
+
+The implementation also has a small, separately linked C math library under
+`include/trytr/math` and `src/math`. It currently separates real scalars,
+complex numbers, points, 2D vectors, matrices, affine transforms, and curve
+geometry. A vector can be converted explicitly to `x + yi`; its rotation uses
+complex multiplication, while dot and cross products stay vector operations.
+These are library APIs for the implementation today. Their representations
+and numerical boundaries are in [the math library notes](math-library.md).
+They do not make `@math` an expression evaluator yet.
 
 Text blocks can set a font size, RGB color, and alignment in a parenthesized
 option list. Font sizes range from 1 through 256 document units; the defaults
@@ -161,6 +194,36 @@ Integer expressions support unary `+` and `-`, parentheses, `+`, `-`, `*`,
 and `/`. Multiplication and division have higher precedence; division truncates
 toward zero. For example, `@rect(2 + 3 * 4, 10, 100 / 2, 30)`.
 
+## Parameters and shared values
+
+Declare bounded integer parameters at the start of the document. Each requires
+a minimum, maximum, default value, step, and a reader-facing label:
+
+```trytr
+@param #peak(min:8, max:48, value:24, step:2) {Peak height}
+```
+
+Use `#peak` inside integer expressions, text or math blocks, or as a numeric
+plot data coordinate. The selected value is resolved consistently across
+those locations. Parameter references can use the arithmetic operators above
+in integer expressions; plot data currently accepts a parameter as a
+coordinate value. Parameters must be declared before document content, and
+cannot be nested in groups. The current implementation supports at most 128
+parameters; values are bounded to the document coordinate range.
+
+The C API accepts a validated parameter override while parsing a document. The
+CLI offers the same operation with `--set ID=INTEGER`; rendering then uses the
+new value for the equation and graph together:
+
+```sh
+./build/debug/trytr --render-svg docs/examples/interactive-peak.trytr
+./build/debug/trytr --set peak=38 --render-svg docs/examples/interactive-peak.trytr
+```
+
+The MCP preview does not yet expose parameter controls. A host can currently
+re-render with a new value through the C API or CLI; live controls and reactive
+updates in the chat panel are still to be added.
+
 ## Build, validate, and render
 
 From the project root:
@@ -192,15 +255,16 @@ arbitrary zoom. Use SVG for continuous, scalable geometry.
 
 ## Render from an AI chat
 
-The optional MCP server lets an MCP Apps-capable chat client render a Trytr
-drawing inside an embedded **Trytr Preview** panel in the conversation. The
-panel shows the rendered drawing, zoom controls, and the source used for the
-render. It uses Trytr's local vector renderer; it does not call an image
-generation service or create a raster image file. The model-facing render call
-returns a small preview ID, and the embedded panel loads the SVG from a
-separate app-only MCP tool. This keeps SVG markup out of the model's context.
-The complete source is rendered after generation, so temporary streamed text
-does not determine the final line geometry.
+The optional MCP server is one host adapter. In an MCP Apps-capable chat client,
+it renders a completed Trytr document inside an embedded **Trytr Preview**
+panel. The current panel has zoom controls and a source view. It uses Trytr's
+local vector renderer; it does not call an image-generation service or create a
+raster image file. The model-facing render call returns a small preview ID, and
+the panel loads the SVG using a separate app-only MCP tool. This keeps SVG
+markup out of the model's context. The complete source is rendered after
+generation, so temporary streamed text does not determine the final line
+geometry. Future host adapters can provide different outputs and approved
+interactions without making MCP Apps or SVG part of the language definition.
 
 The view follows the open [MCP Apps UI standard](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx).
 Chat clients that do not support MCP Apps receive the character-grid text
@@ -242,6 +306,7 @@ output for plain chat and terminal clients.
 - [Proof that sqrt(2) is irrational](examples/proof-sqrt2.trytr) · [rendered SVG](examples/proof-sqrt2.svg)
 - [Text graph source](examples/text-graph.trytr) · [text rendering](examples/text-graph.txt)
 - [Numeric plot source](examples/data-plot.trytr) · [SVG](examples/data-plot.svg) · [chat text](examples/data-plot.txt)
+- [Shared parameter source](examples/interactive-peak.trytr) · [default render](examples/interactive-peak.svg) · [render with `peak=38`](examples/interactive-peak-38.svg)
 
 See [math-rendering.md](math-rendering.md) for the spline and rasterization
 methods used for curves and lines.
