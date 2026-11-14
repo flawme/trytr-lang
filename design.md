@@ -1217,27 +1217,57 @@ Parallel execution must not introduce nondeterministic document semantics.
 
 # 26. Memory management
 
-The implementation uses hybrid memory management.
+The runtime uses explicit ownership with bounded per-document allocation. A
+renderer must not retain pointers into a document after its owner releases it.
+
+## 26.1 Current prototype
+
+Each `TrytrDocument` owns one arena for parsed nodes, diagnostics, parameter
+metadata, and compiled instructions. The arena is capped at 4 MiB and is freed
+in one operation by `trytr_document_destroy()`. The parser separately limits
+source size to 1 MiB and document nodes to 4,096. Rendered buffers are returned
+as caller-owned memory and must be released by the caller.
+
+The CLI has no persistent document store. The MCP adapter keeps only a bounded
+cache of recent rendered previews in process memory; it does not retain a
+conversation history or a live parsed document between renders. Parameter
+changes currently parse the complete source again.
+
+Reference-counted shared assets and allocation pools are not implemented in
+the prototype.
+
+## 26.2 Target model
 
 **Arenas**
 
-Used for temporary parsing and validation allocations.
+Use a bounded arena for each committed document revision and temporary render
+work. Discarding an obsolete revision releases its document allocations in one
+operation.
 
 **Owned resources**
 
-Used for persistent assets.
+Use explicit handles for resources that outlive a single revision, such as
+fonts, images, and large datasets. Keep their byte budgets and lifetimes
+separate from the document arena.
 
 **Reference counting**
 
-Used for shared resources where appropriate.
+Use only for resources actually shared by multiple live revisions or views; do
+not make ordinary syntax nodes individually reference counted.
 
 **Bounded pools**
 
-Used for frequent rendering-object allocations.
+Add pools only for measured, frequent short-lived objects. Pools must have fixed
+limits and must not obscure ownership.
 
-Ownership and lifetime rules must be explicit.
+For streaming, publish immutable snapshots with revision IDs. A partial parse
+may build in a temporary arena; publish it only when the completed elements
+validate. A newer revision supersedes the older snapshot, and the host can
+discard the old one after its current render finishes.
 
-The runtime must avoid ambiguous ownership and uncontrolled allocation.
+The runtime must apply explicit limits to source bytes, nodes, evaluation work,
+render output, cached previews, and retained assets. It must report limit
+failures rather than continue with unbounded allocation.
 
 ---
 
