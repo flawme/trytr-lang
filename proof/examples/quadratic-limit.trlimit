@@ -1,0 +1,4 @@
+\begin{limitproof}
+\lim_{x\to 2}(x^2+1)=5
+\delta=\min\left(1,\frac{\varepsilon}{5}\right)
+\end{limitproof}

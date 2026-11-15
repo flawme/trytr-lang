@@ -1,0 +1,5 @@
+# Put one complete equality on each row; align markers and row breaks are optional.
+\begin{align*}
+(x+y)^2 &= x^2+2xy+y^2 \\
+(a-b)(a+b) &= a^2-b^2
+\end{align*}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Trytr Proof Chat</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <section class="app" aria-label="Trytr proof chat demo">
+    <header>
+      <div class="mark" aria-hidden="true">T</div>
+      <div><strong>Trytr Proof Chat</strong><small>OpenRouter streams · Trytr renders the math</small></div>
+    </header>
+    <section class="settings" aria-label="Model settings">
+      <label>OpenRouter model
+        <input id="model" value="openai/gpt-4o-mini" autocomplete="off" spellcheck="false">
+      </label>
+      <label>OpenRouter API key
+        <input id="api-key" type="password" placeholder="Paste your key for this session" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="key-note">The key is used for requests and is never saved by this demo. OpenRouter may bill usage to your account.</p>
+    </section>
+    <main id="messages" aria-live="polite">
+      <article class="message" id="sample">
+        <span class="label">Trytr-rendered example</span>
+        <p>Start with the recursive addition rules, then reduce the left side until it equals 2:</p>
+        <div class="math" id="sample-math">Loading Trytr MathML…</div>
+        <p class="muted">This equation layout comes from Trytr's MathML renderer. No SVG is used.</p>
+      </article>
+    </main>
+    <section class="composer">
+      <form id="ask-form">
+        <label class="sr-only" for="prompt">Ask a math question</label>
+        <textarea id="prompt" rows="2" maxlength="4000" placeholder="Ask for a short proof, equation, or explanation…">Prove 1 + 1 = 2 from the recursive addition rules.</textarea>
+        <button id="send" type="submit">Ask</button>
+      </form>
+      <p class="composer-note">The assistant streams plain text. Its final equation is parsed and rendered by Trytr into browser-native MathML.</p>
+    </section>
+  </section>
+  <script src="/app.js" defer></script>
+</body>
+</html>

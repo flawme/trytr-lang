@@ -1,0 +1,4 @@
+theorem one_plus_one: add(succ(0), succ(0)) = succ(succ(0)) {
+    rewrite add_succ;
+    rewrite add_zero;
+}
