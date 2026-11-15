@@ -380,6 +380,16 @@ and unsupported rows separately. It does not certify prose, assumptions,
 inequalities, or a complete proof. Set `TRYTR_PROOF_EXECUTABLE` or pass
 `--trytr-proof /path/to/trytr-proof` to use a checker from another build.
 
+For supported proof certificates, use `check_trytr_certificate` with
+`kind: "natural_equality"` for a Peano equality derivation or
+`kind: "polynomial_limit"` for a polynomial limit certificate. A `verified`
+result means that certificate passed the corresponding checker. A `rejected`
+result means the checker did not validate it; this may be a failed proof goal or
+malformed certificate and does not by itself prove the mathematical claim false.
+The tool has a 64 KiB source limit and a five second execution limit. It checks
+formal certificates only, not informal prose or arbitrary mathematics. The proof
+checker and its supported rules are documented in [proof/README.md](../proof/README.md).
+
 ## Examples
 
 - [Hello document source](examples/hello.trytr) · [rendered SVG](examples/hello.svg)

@@ -213,7 +213,12 @@ class TrytrMcpTests(unittest.TestCase):
             },
         ])
         self.assertEqual(
-            ["render_trytr", "render_trytr_text", "review_trytr_math"],
+            [
+                "render_trytr",
+                "render_trytr_text",
+                "review_trytr_math",
+                "check_trytr_certificate",
+            ],
             [tool["name"] for tool in tools["result"]["tools"]],
         )
         result = result["result"]
@@ -476,10 +481,16 @@ class TrytrMcpTests(unittest.TestCase):
                 "params": {"_meta": APP_SERVER_META},
             })["result"]["tools"]
             self.assertEqual(
-                ["render_trytr", "render_trytr_text", "review_trytr_math", "get_trytr_preview"],
+                [
+                    "render_trytr",
+                    "render_trytr_text",
+                    "review_trytr_math",
+                    "check_trytr_certificate",
+                    "get_trytr_preview",
+                ],
                 [tool["name"] for tool in tools],
             )
-            self.assertEqual(["app"], tools[3]["_meta"]["ui"]["visibility"])
+            self.assertEqual(["app"], tools[4]["_meta"]["ui"]["visibility"])
 
             rendered = exchange({
                 "jsonrpc": "2.0",
@@ -650,6 +661,148 @@ class TrytrMcpTests(unittest.TestCase):
         self.assertTrue(responses[1]["result"]["isError"])
         self.assertEqual("unable_to_check", result["status"])
         self.assertIn("64 KiB", result["message"])
+
+    def test_certificate_tool_checks_natural_and_limit_certificates(self):
+        if self.proof_executable is None:
+            self.skipTest("proof executable is not configured")
+        natural_certificate = (
+            "theorem one_plus_one: add(succ(0), succ(0)) = succ(succ(0)) {\n"
+            "    rewrite add_succ;\n"
+            "    rewrite add_zero;\n"
+            "}\n"
+        )
+        limit_certificate = (
+            "\\begin{limitproof}\n"
+            "\\lim_{x\\to 2}(x^2+1)=5\n"
+            "\\delta=\\min\\left(1,\\frac{\\varepsilon}{5}\\right)\n"
+            "\\end{limitproof}\n"
+        )
+        false_certificate = natural_certificate.replace(
+            "succ(succ(0)) {", "succ(succ(succ(0))) {"
+        )
+        malformed_certificate = "\\begin{limitproof}\nnot a valid certificate\n"
+        calls = [
+            ("natural_equality", natural_certificate),
+            ("polynomial_limit", limit_certificate),
+            ("natural_equality", false_certificate),
+            ("polynomial_limit", malformed_certificate),
+            ("polynomial_limit", natural_certificate),
+            ("natural_equality", limit_certificate),
+        ]
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            }
+        ]
+        requests.extend(
+            {
+                "jsonrpc": "2.0",
+                "id": index,
+                "method": "tools/call",
+                "params": {
+                    "name": "check_trytr_certificate",
+                    "arguments": {"kind": kind, "source": source},
+                },
+            }
+            for index, (kind, source) in enumerate(calls, start=1)
+        )
+        responses = self.run_server(requests)
+        results = [response["result"] for response in responses[1:]]
+        payloads = [result["structuredContent"] for result in results]
+        self.assertEqual(
+            ["verified", "verified", "rejected", "rejected", "rejected", "rejected"],
+            [payload["status"] for payload in payloads],
+        )
+        self.assertEqual(
+            [True, True, False, False, False, False],
+            [payload["ok"] for payload in payloads],
+        )
+        self.assertFalse(any(result["isError"] for result in results))
+        self.assertIn("checker", payloads[0]["message"])
+        self.assertIn("did not validate", payloads[2]["message"])
+        self.assertIn("does not match kind", payloads[4]["message"])
+        self.assertIn("does not match kind", payloads[5]["message"])
+        self.assertNotIn(
+            "trytr-certificate-",
+            " ".join(payload["message"] for payload in payloads),
+        )
+
+    def test_certificate_tool_bounds_input_and_rejects_unknown_kind(self):
+        requests = [
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "large",
+                "method": "tools/call",
+                "params": {
+                    "name": "check_trytr_certificate",
+                    "arguments": {
+                        "kind": "natural_equality",
+                        "source": "x" * (64 * 1024 + 1),
+                    },
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "kind",
+                "method": "tools/call",
+                "params": {
+                    "name": "check_trytr_certificate",
+                    "arguments": {"kind": "lean", "source": "anything"},
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "extra",
+                "method": "tools/call",
+                "params": {
+                    "name": "check_trytr_certificate",
+                    "arguments": {
+                        "kind": "natural_equality",
+                        "source": "anything",
+                        "path": "/tmp/input",
+                    },
+                },
+            },
+        ]
+        requests.extend(
+            {
+                "jsonrpc": "2.0",
+                "id": f"bad-source-{index}",
+                "method": "tools/call",
+                "params": {
+                    "name": "check_trytr_certificate",
+                    "arguments": {"kind": "natural_equality", "source": source},
+                },
+            }
+            for index, source in enumerate((42, "\0", "   ", "\ud800"))
+        )
+        responses = self.run_server(requests)
+        oversized = responses[1]["result"]
+        self.assertTrue(oversized["isError"])
+        self.assertEqual("unable_to_check", oversized["structuredContent"]["status"])
+        self.assertIn("64 KiB", oversized["structuredContent"]["message"])
+        unknown_kind = responses[2]["result"]
+        self.assertTrue(unknown_kind["isError"])
+        self.assertEqual("unable_to_check", unknown_kind["structuredContent"]["status"])
+        self.assertEqual(-32602, responses[3]["error"]["code"])
+        invalid_source_results = [response["result"] for response in responses[4:]]
+        self.assertEqual(4, len(invalid_source_results))
+        self.assertTrue(all(result["isError"] for result in invalid_source_results))
+        self.assertTrue(
+            all(
+                result["structuredContent"]["status"] == "unable_to_check"
+                for result in invalid_source_results
+            )
+        )
 
     def test_oversized_vector_preview_is_rejected(self):
         source = "@document(version:1){@text{" + ("<" * 600_000) + "}}"

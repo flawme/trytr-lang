@@ -16,7 +16,13 @@ import sys
 import time
 from typing import Any
 
-from proof_review import REVIEW_TOOL, review_math, resolve_proof_executable
+from proof_review import (
+    CHECK_CERTIFICATE_TOOL,
+    REVIEW_TOOL,
+    check_certificate,
+    review_math,
+    resolve_proof_executable,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +60,9 @@ SERVER_INSTRUCTIONS = (
     "pass integer overrides in the parameters object to re-render the document. "
     "Both modes validate and render locally after receiving the complete source. "
     "review_trytr_math checks supported polynomial equalities; it does not prove "
-    "prose, assumptions, or unsupported mathematics."
+    "prose, assumptions, or unsupported mathematics. check_trytr_certificate runs "
+    "the small built-in checker for supported formal certificate formats; it is "
+    "not a general theorem prover."
 )
 SERVER_META = {"io.modelcontextprotocol/serverInfo": SERVER_INFO}
 
@@ -193,6 +201,7 @@ TOOLS = [
     }
 ]
 TOOLS.append(REVIEW_TOOL)
+TOOLS.append(CHECK_CERTIFICATE_TOOL)
 APP_TOOLS = [
     {
         "name": "get_trytr_preview",
@@ -714,6 +723,20 @@ def handle_request(
                     "review_trytr_math requires only a string 'source' argument",
                 )
             result = review_math(arguments.get("source"), proof_executable)
+            if is_modern:
+                return _response(request_id, _modern_result(result))
+            return _response(request_id, result)
+        if tool_name == "check_trytr_certificate":
+            arguments = params.get("arguments")
+            if not isinstance(arguments, dict) or set(arguments) != {"kind", "source"}:
+                return _error(
+                    request_id,
+                    -32602,
+                    "check_trytr_certificate requires only 'kind' and 'source' arguments",
+                )
+            result = check_certificate(
+                arguments.get("kind"), arguments.get("source"), proof_executable
+            )
             if is_modern:
                 return _response(request_id, _modern_result(result))
             return _response(request_id, result)
