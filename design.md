@@ -613,9 +613,20 @@ Rounded rectangles use a non-negative corner radius no greater than half their
 width or height.
 
 The initial path syntax accepts uppercase `M`, `L`, `H`, `V`, `C`, `Q`, and
-`Z` commands with signed integer coordinates. Each command takes one argument
-group; repeated implicit groups, relative commands, arcs, and fractional
-coordinates are not yet supported. Path coordinates follow the same range as
+`Z` commands. Coordinate values accept bounded integer expressions and
+references to previously declared integer parameters. Multiplication and
+division take precedence over addition and subtraction; division truncates
+toward zero. Expressions are evaluated during parsing, checked against the
+coordinate range, and stored as canonical numeric path data. The existing path
+analysis API validates that canonical data and supplies conservative bounds
+and segment counts to the document IR. Neither renderer receives expressions
+or parameter references.
+
+Each command takes one argument group; repeated implicit groups, relative
+commands, arcs, and fractional coordinates are not yet supported. Compact
+sign-separated coordinates remain valid: `M 10-20` means x=10, y=-20. When an
+arithmetic expression could be read as a coordinate sign, parentheses remove
+the ambiguity, as in `M (10 - 20) 5`. Path coordinates follow the same range as
 other geometry. A path is limited to 64 KiB and 2,048 commands, and execution
 accounts for each command against the VM fuel budget.
 
@@ -1652,9 +1663,11 @@ This lets diagrams and graphs appear directly in chat without SVG or image
 content. The text backend does not preserve color or fill styles.
 
 The current prototype supports bounded integer parameters and references in
-integer expressions, text and math blocks, `@expr`, and numeric or formula plot
-coordinates. The C API and CLI can parse the same document with new parameter
-values. The MCP Apps preview exposes these parameters as controls and rerenders
+integer expressions, text and math blocks, `@expr`, numeric or formula plot
+coordinates, and `@path` coordinates. Path references are folded to canonical
+numeric data before the document reaches either renderer. The C API and CLI
+can parse the same document with new parameter values. The MCP Apps preview
+exposes these parameters as controls and rerenders
 the document when they change. Each update still reparses the full document;
 incremental dependency updates, typed complex or vector values in document
 expressions, and backend-neutral control events remain planned work. The MCP

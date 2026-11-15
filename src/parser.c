@@ -9,6 +9,7 @@
 #include "trytr/math/expression.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct TrytrParser {
@@ -23,6 +24,7 @@ typedef struct TrytrParser {
     bool parameter_bounds_expression;
     bool content_started;
     bool aborted;
+    bool path_expression_mode;
 } TrytrParser;
 
 static void parse_element(TrytrParser *parser, TrytrNode *parent);
@@ -377,6 +379,19 @@ static unsigned int expression_precedence(TrytrTokenKind kind)
     return 0u;
 }
 
+static bool path_sign_starts_coordinate(const TrytrParser *parser, size_t depth)
+{
+    if (!parser->path_expression_mode || depth != 0u ||
+        (parser->current.kind != TRYTR_TOKEN_PLUS &&
+         parser->current.kind != TRYTR_TOKEN_MINUS)) {
+        return false;
+    }
+    TrytrLexer lookahead = parser->lexer;
+    const TrytrToken next = trytr_lexer_next(&lookahead);
+    return next.kind == TRYTR_TOKEN_INTEGER &&
+           next.location.offset == parser->current.location.offset + parser->current.length;
+}
+
 static bool parse_expression(TrytrParser *parser, unsigned int min_precedence,
                              size_t depth, int64_t *out_value)
 {
@@ -385,6 +400,7 @@ static bool parse_expression(TrytrParser *parser, unsigned int min_precedence,
 
     for (;;) {
         const TrytrTokenKind operator_kind = parser->current.kind;
+        if (path_sign_starts_coordinate(parser, depth)) break;
         const unsigned int precedence = expression_precedence(operator_kind);
         if (precedence == 0u || precedence < min_precedence) break;
         const TrytrSourceLocation operator_location = parser->current.location;
@@ -1170,6 +1186,214 @@ static TrytrSourceLocation raw_block_error_location(
     return raw_location;
 }
 
+static bool is_path_command(char value)
+{
+    return value == 'M' || value == 'L' || value == 'H' || value == 'V' ||
+           value == 'C' || value == 'Q' || value == 'Z';
+}
+
+static size_t path_command_argument_count(char command)
+{
+    if (command == 'Z') return 0u;
+    if (command == 'H' || command == 'V') return 1u;
+    if (command == 'Q') return 4u;
+    if (command == 'C') return 6u;
+    return 2u;
+}
+
+static bool append_path_text(char *buffer, size_t *length, const char *text, size_t text_length)
+{
+    if (*length > TRYTR_DEFAULT_PATH_BYTE_LIMIT ||
+        text_length > TRYTR_DEFAULT_PATH_BYTE_LIMIT - *length) return false;
+    memcpy(buffer + *length, text, text_length);
+    *length += text_length;
+    buffer[*length] = '\0';
+    return true;
+}
+
+static bool append_path_coordinate(char *buffer, size_t *length, int64_t value)
+{
+    char number[32];
+    const int number_length = snprintf(number, sizeof(number), "%" PRId64, value);
+    if (number_length < 0 || (size_t)number_length >= sizeof(number)) return false;
+    return append_path_text(buffer, length, " ", 1u) &&
+           append_path_text(buffer, length, number, (size_t)number_length);
+}
+
+static void report_path_expression_failure(
+    TrytrParser *parser,
+    const TrytrParserOutput *local_output,
+    bool path_parser_aborted,
+    size_t raw_source_offset,
+    TrytrSourceLocation raw_location
+)
+{
+    parser->aborted = parser->aborted || path_parser_aborted;
+    if (local_output->out_of_memory || local_output->diagnostics.allocation_failed) {
+        parser->output->out_of_memory = true;
+    }
+    if (local_output->diagnostics.count != 0u) {
+        const TrytrDiagnostic *diagnostic = &local_output->diagnostics.items[0];
+        const TrytrSourceLocation location = raw_block_error_location(
+            parser, raw_source_offset, raw_location, diagnostic->location.offset);
+        error(parser, diagnostic->code, location, diagnostic->message);
+        return;
+    }
+    error(parser, "TRYTR-E-PATH", raw_location, "invalid path data or path expression");
+}
+
+static bool normalize_path_data(
+    TrytrParser *parser,
+    TrytrNode *node,
+    size_t raw_source_offset,
+    TrytrSourceLocation raw_location,
+    TrytrPathAnalysis *out_analysis
+)
+{
+    if (node->text_length > TRYTR_DEFAULT_PATH_BYTE_LIMIT) {
+        error(parser, "TRYTR-E-LIMIT", raw_location,
+              "path data exceeds its byte or segment limit");
+        return false;
+    }
+    char *canonical = malloc(TRYTR_DEFAULT_PATH_BYTE_LIMIT + 1u);
+    if (canonical == NULL) {
+        error(parser, "TRYTR-E-MEMORY", node->location,
+              "unable to allocate canonical path data");
+        parser->aborted = true;
+        parser->output->out_of_memory = true;
+        return false;
+    }
+    size_t canonical_length = 0u;
+    canonical[0] = '\0';
+
+    TrytrParserOutput local_output = *parser->output;
+    trytr_diagnostic_list_init(&local_output.diagnostics, &parser->output->arena,
+                               TRYTR_DEFAULT_DIAGNOSTIC_LIMIT);
+    TrytrParser path_parser = *parser;
+    path_parser.output = &local_output;
+    path_parser.path_expression_mode = true;
+    trytr_lexer_init(&path_parser.lexer, node->text, node->text_length,
+                     &local_output.diagnostics);
+    path_parser.current = trytr_lexer_next(&path_parser.lexer);
+
+    size_t command_count = 0u;
+    while (path_parser.current.kind != TRYTR_TOKEN_EOF) {
+        const TrytrToken command_token = path_parser.current;
+        if (command_token.kind != TRYTR_TOKEN_IDENTIFIER || command_token.length == 0u ||
+            !is_path_command(command_token.lexeme[0])) {
+            error(&path_parser, "TRYTR-E-PATH", command_token.location,
+                  "invalid path data; expected uppercase M, L, H, V, C, Q, or Z commands");
+            goto invalid_path;
+        }
+
+        const char command = command_token.lexeme[0];
+        if (command_count == 0u && command != 'M') {
+            error(&path_parser, "TRYTR-E-PATH", command_token.location,
+                  "path data must begin with an M command");
+            goto invalid_path;
+        }
+        if (command_count >= TRYTR_DEFAULT_PATH_SEGMENT_LIMIT) {
+            error(&path_parser, "TRYTR-E-LIMIT", command_token.location,
+                  "path data exceeds its byte or segment limit");
+            goto invalid_path;
+        }
+        if (canonical_length != 0u &&
+            !append_path_text(canonical, &canonical_length, " ", 1u)) {
+            error(&path_parser, "TRYTR-E-LIMIT", command_token.location,
+                  "canonical path data exceeds its byte limit");
+            goto invalid_path;
+        }
+        if (!append_path_text(canonical, &canonical_length, &command, 1u)) {
+            error(&path_parser, "TRYTR-E-LIMIT", command_token.location,
+                  "canonical path data exceeds its byte limit");
+            goto invalid_path;
+        }
+
+        if (command_token.length > 1u) {
+            path_parser.lexer.position = command_token.location.offset + 1u;
+            path_parser.lexer.line = command_token.location.line;
+            path_parser.lexer.column = command_token.location.column + 1u;
+            path_parser.current = trytr_lexer_next(&path_parser.lexer);
+        } else {
+            advance(&path_parser);
+        }
+
+        const size_t argument_count = path_command_argument_count(command);
+        for (size_t argument = 0u; argument < argument_count; ++argument) {
+            if (argument != 0u && path_parser.current.kind == TRYTR_TOKEN_COMMA) {
+                advance(&path_parser);
+            }
+            const TrytrSourceLocation coordinate_location = path_parser.current.location;
+            int64_t value = 0;
+            if (!parse_expression(&path_parser, 0u, 0u, &value)) goto invalid_path;
+            if (value < -TRYTR_DEFAULT_COORDINATE_LIMIT ||
+                value > TRYTR_DEFAULT_COORDINATE_LIMIT) {
+                error(&path_parser, "TRYTR-E-COORDINATE", coordinate_location,
+                      "path coordinate exceeds the coordinate limit");
+                goto invalid_path;
+            }
+            if (!append_path_coordinate(canonical, &canonical_length, value)) {
+                error(&path_parser, "TRYTR-E-LIMIT", coordinate_location,
+                      "canonical path data exceeds its byte limit");
+                goto invalid_path;
+            }
+        }
+        ++command_count;
+    }
+
+    parser->expression_operations = path_parser.expression_operations;
+    if (command_count == 0u) {
+        error(&path_parser, "TRYTR-E-PATH", path_parser.current.location,
+              "path data must contain at least one command");
+        goto invalid_path;
+    }
+
+    size_t error_offset = 0u;
+    const TrytrPathStatus status = trytr_path_analyze(
+        canonical, canonical_length, out_analysis, &error_offset);
+    if (status != TRYTR_PATH_OK) {
+        const char *code = status == TRYTR_PATH_LIMIT_EXCEEDED ? "TRYTR-E-LIMIT" :
+                           status == TRYTR_PATH_COORDINATE_RANGE ? "TRYTR-E-COORDINATE" :
+                           "TRYTR-E-PATH";
+        const TrytrSourceLocation local_location = {
+            .offset = error_offset,
+            .line = 1u,
+            .column = error_offset + 1u
+        };
+        error(parser, code,
+              raw_block_error_location(parser, raw_source_offset, raw_location,
+                                       local_location.offset),
+              status == TRYTR_PATH_LIMIT_EXCEEDED
+                  ? "path data exceeds its byte or segment limit"
+                  : status == TRYTR_PATH_COORDINATE_RANGE
+                      ? "path coordinate exceeds the coordinate limit"
+                      : "invalid canonical path data");
+        free(canonical);
+        return false;
+    }
+
+    char *stored = trytr_arena_copy_string(&parser->output->arena, canonical,
+                                           canonical_length);
+    free(canonical);
+    if (stored == NULL) {
+        error(parser, "TRYTR-E-MEMORY", node->location,
+              "unable to store canonical path data");
+        parser->aborted = true;
+        parser->output->out_of_memory = true;
+        return false;
+    }
+    node->text = stored;
+    node->text_length = canonical_length;
+    return true;
+
+invalid_path:
+    parser->expression_operations = path_parser.expression_operations;
+    report_path_expression_failure(parser, &local_output, path_parser.aborted,
+                                   raw_source_offset, raw_location);
+    free(canonical);
+    return false;
+}
+
 static void parse_path_element(TrytrParser *parser, TrytrNode *node, TrytrNode *root)
 {
     if (parser->current.kind != TRYTR_TOKEN_LBRACE) {
@@ -1197,24 +1421,7 @@ static void parse_path_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
     parser->current = trytr_lexer_next(&parser->lexer);
 
     TrytrPathAnalysis analysis;
-    size_t error_offset = 0u;
-    const TrytrPathStatus path_status = trytr_path_analyze(
-        node->text, node->text_length, &analysis, &error_offset);
-    if (path_status != TRYTR_PATH_OK) {
-        const TrytrSourceLocation location = raw_block_error_location(
-            parser, raw_source_offset, raw_location, error_offset);
-        if (path_status == TRYTR_PATH_LIMIT_EXCEEDED) {
-            error(parser, "TRYTR-E-LIMIT", location,
-                  "path data exceeds its byte or segment limit");
-        } else if (path_status == TRYTR_PATH_COORDINATE_RANGE) {
-            error(parser, "TRYTR-E-COORDINATE", location,
-                  "path coordinate exceeds the coordinate limit");
-        } else {
-            error(parser, "TRYTR-E-PATH", location,
-                  "invalid path data; expected uppercase M, L, H, V, C, Q, or Z commands with integer coordinates");
-        }
-        return;
-    }
+    if (!normalize_path_data(parser, node, raw_source_offset, raw_location, &analysis)) return;
     node->path_min_x = analysis.min_x;
     node->path_min_y = analysis.min_y;
     node->path_max_x = analysis.max_x;

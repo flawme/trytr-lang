@@ -123,12 +123,42 @@ static bool test_parser_stores_polygon_bounds_and_source_locations(void)
     return true;
 }
 
+static bool test_path_expression_support_does_not_change_polygon_grammar(void)
+{
+    static const char source[] =
+        "@document(version:1){@polygon #legacy{1,2 30,4 -5,6}}";
+    TrytrParserOutput output;
+    TEST_ASSERT(trytr_parser_parse(source, sizeof(source) - 1u, &output));
+    const TrytrNode *polygon = output.root->children;
+    TEST_ASSERT_INT(TRYTR_NODE_POLYGON, polygon->kind);
+    TEST_ASSERT_STRING("1,2 30,4 -5,6", polygon->text);
+    TEST_ASSERT_SIZE(3u, polygon->polygon_point_count);
+    TEST_ASSERT_INT(-5, polygon->polygon_min_x);
+    TEST_ASSERT_INT(30, polygon->polygon_max_x);
+    trytr_parser_output_destroy(&output);
+
+    static const char expression[] =
+        "@document(version:1){@polygon{(1 + 2),2 3,4 5,6}}";
+    TEST_ASSERT(!trytr_parser_parse(expression, sizeof(expression) - 1u, &output));
+    bool found_polygon_diagnostic = false;
+    for (size_t index = 0u; index < output.diagnostics.count; ++index) {
+        if (strcmp(output.diagnostics.items[index].code, "TRYTR-E-POLYGON") == 0) {
+            found_polygon_diagnostic = true;
+            break;
+        }
+    }
+    TEST_ASSERT(found_polygon_diagnostic);
+    trytr_parser_output_destroy(&output);
+    return true;
+}
+
 static const TrytrTestCase tests[] = {
     {"valid points and bounds", test_valid_points_and_bounds},
     {"invalid point lists", test_invalid_point_lists},
     {"coordinate, byte, and point limits", test_coordinate_byte_and_point_limits},
     {"invalid arguments", test_invalid_arguments},
-    {"parser bounds and locations", test_parser_stores_polygon_bounds_and_source_locations}
+    {"parser bounds and locations", test_parser_stores_polygon_bounds_and_source_locations},
+    {"polygon grammar regression", test_path_expression_support_does_not_change_polygon_grammar}
 };
 
 TEST_MAIN(tests)

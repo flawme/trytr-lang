@@ -72,6 +72,44 @@ static bool test_svg_renders_all_shapes_and_escapes_text(void)
     return true;
 }
 
+static bool test_svg_receives_only_folded_path_coordinates(void)
+{
+    static const char source[] =
+        "@document(version:1){"
+        "@param #scale(min:1,max:10,value:3,step:1){Scale}"
+        "@path #expr{M (#scale * 2) -20 L #scale + 1 (#scale * 2) Z}}";
+    TrytrDocument *document = NULL;
+    char *svg = NULL;
+    size_t length = 0u;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_parse(source, sizeof(source) - 1u, &document));
+    TEST_ASSERT_INT(TRYTR_STATUS_OK, trytr_svg_render(document, &svg, &length));
+    TEST_ASSERT(contains(svg,
+        "<path id=\"expr\" d=\"M 6 -20 L 4 6 Z\""
+        " fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>"));
+    TEST_ASSERT(!contains(svg, "#scale"));
+    TEST_ASSERT_SIZE(strlen(svg), length);
+    free(svg);
+    trytr_document_destroy(document);
+
+    const TrytrParameterOverride override = {.id = "scale", .value = 7};
+    document = NULL;
+    svg = NULL;
+    length = 0u;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_parse_with_parameters(
+                        source, sizeof(source) - 1u, &override, 1u, &document));
+    TEST_ASSERT_INT(TRYTR_STATUS_OK, trytr_svg_render(document, &svg, &length));
+    TEST_ASSERT(contains(svg,
+        "<path id=\"expr\" d=\"M 14 -20 L 8 14 Z\""
+        " fill=\"none\" stroke=\"#222\" stroke-width=\"1\"/>"));
+    TEST_ASSERT(!contains(svg, "#scale"));
+    TEST_ASSERT_SIZE(strlen(svg), length);
+    free(svg);
+    trytr_document_destroy(document);
+    return true;
+}
+
 static bool test_math_scripts_render_as_tspans(void)
 {
     static const char source[] =
@@ -400,6 +438,7 @@ static bool test_svg_output_limit(void)
 
 static const TrytrTestCase tests[] = {
     {"shapes and escaped text", test_svg_renders_all_shapes_and_escapes_text},
+    {"folded path coordinates", test_svg_receives_only_folded_path_coordinates},
     {"shape paint colors", test_shape_fill_and_stroke_colors},
     {"text styling", test_text_font_size_color_and_alignment},
     {"word wrapping", test_text_width_wraps_at_words_without_splitting_long_words},

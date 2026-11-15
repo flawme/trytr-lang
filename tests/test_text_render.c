@@ -19,6 +19,24 @@ static bool contains_non_ascii(const char *text)
     return false;
 }
 
+typedef struct PathTextCapture {
+    char text[128];
+    size_t length;
+    bool found;
+} PathTextCapture;
+
+static bool capture_path_text(const TrytrDocumentElement *element, void *user_data)
+{
+    PathTextCapture *capture = user_data;
+    if (element->kind != TRYTR_ELEMENT_PATH) return true;
+    if (element->text_length >= sizeof(capture->text)) return false;
+    memcpy(capture->text, element->text, element->text_length);
+    capture->text[element->text_length] = '\0';
+    capture->length = element->text_length;
+    capture->found = true;
+    return true;
+}
+
 static bool test_text_renderer_emits_graph_as_inline_characters(void)
 {
     static const char source[] =
@@ -106,11 +124,41 @@ static bool test_text_renderer_maps_subcells_to_block_glyphs(void)
     return true;
 }
 
+static bool test_text_renderer_draws_path_after_expression_folding(void)
+{
+    static const char source[] =
+        "@document(version:1,width:100,height:60){"
+        "@param #step(min:1,max:20,value:10,step:1){Step}"
+        "@path #expression{M #step (100 - #step * 5) L (#step * 5) #step}}";
+    TrytrDocument *document = NULL;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_parse(source, sizeof(source) - 1u, &document));
+
+    PathTextCapture capture = {0};
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+                    trytr_document_execute(document, capture_path_text, &capture));
+    TEST_ASSERT(capture.found);
+    TEST_ASSERT_STRING("M 10 50 L 50 10", capture.text);
+    TEST_ASSERT_SIZE(strlen(capture.text), capture.length);
+
+    char *text = NULL;
+    size_t length = 0u;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK, trytr_text_render(document, &text, &length));
+    TEST_ASSERT(contains_non_ascii(text));
+    TEST_ASSERT(!contains(text, "#expression"));
+    TEST_ASSERT(!contains(text, "#step"));
+    TEST_ASSERT_SIZE(strlen(text), length);
+    free(text);
+    trytr_document_destroy(document);
+    return true;
+}
+
 static const TrytrTestCase tests[] = {
     {"inline text graph", test_text_renderer_emits_graph_as_inline_characters},
     {"text-only output", test_text_renderer_keeps_text_only_documents_as_text},
     {"shape and group output", test_text_renderer_draws_primitives_and_groups},
-    {"subcell block glyph mapping", test_text_renderer_maps_subcells_to_block_glyphs}
+    {"subcell block glyph mapping", test_text_renderer_maps_subcells_to_block_glyphs},
+    {"folded path text rendering", test_text_renderer_draws_path_after_expression_folding}
 };
 
 TEST_MAIN(tests)

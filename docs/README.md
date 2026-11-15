@@ -210,14 +210,30 @@ Without a `fill`, closed shapes stay unfilled. Without a `stroke`, shapes use
 the default dark outline.
 
 Paths use the supported uppercase SVG commands `M`, `L`, `H`, `V`, `C`,
-`Q`, and `Z` with integer coordinates:
+`Q`, and `Z`. Coordinate values accept bounded integer expressions and
+references to parameters declared before the path:
 
 ```trytr
+@param #rise(min:1, max:20, value:8, step:1) {Rise}
 @path #curve { M 10 20 C 30 0 50 40 70 20 }
+@path #adjusted { M (10 + #rise) (40 - #rise) L (30 * 2) 20 }
 @path #colored(stroke: rgb(100, 40, 160), stroke-width: 3) {
     M 10 20 C 30 0 50 40 70 20
 }
 ```
+
+Expressions support unary `+` and `-`, parentheses, `+`, `-`, `*`, and `/`;
+multiplication and division have higher precedence, and integer division
+truncates toward zero. Values are evaluated while parsing, checked against the
+coordinate limit, and stored as canonical numeric path data before either
+renderer receives them. Parameter overrides therefore rebuild path geometry
+with the selected values. Each supported command takes one argument group;
+repeated implicit groups, lowercase relative commands, arcs, and fractional
+coordinates are not supported.
+
+For compatibility, a compact sign between coordinates remains a coordinate
+separator: `M 10-20` means `M 10 -20` (x = 10, y = -20). Parenthesize arithmetic
+when it could be read as that separator, for example `M (10 - 20) 5`.
 
 Path and polygon style options go in parentheses after the optional ID and
 before the geometry block. Filling an open path uses the closed area described

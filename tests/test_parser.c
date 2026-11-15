@@ -233,6 +233,128 @@ static bool test_path_is_parsed_and_invalid_commands_are_located(void)
     return true;
 }
 
+static bool test_path_integer_expressions_fold_for_every_command_family(void)
+{
+    static const char source[] =
+        "@document(version:1){"
+        "@param #step(min:1,max:10,value:2,step:1){Step}"
+        "@path #all{M (2 + 3 * 4) -20 "
+        "L #step + 1, (8 / 2) H 30 / 2 V 40 - 5 "
+        "Q 1 + 2 3 * 2 5 6 C 1 2 3 4 5 6 Z}}";
+    TrytrParserOutput output;
+    TEST_ASSERT(trytr_parser_parse(source, sizeof(source) - 1u, &output));
+    const TrytrNode *path = output.root->children;
+    TEST_ASSERT(path != NULL);
+    TEST_ASSERT_INT(TRYTR_NODE_PATH, path->kind);
+    TEST_ASSERT(assert_node_text(path,
+        "M 14 -20 L 3 4 H 15 V 35 Q 3 6 5 6 C 1 2 3 4 5 6 Z"));
+    TEST_ASSERT_SIZE(7u, path->path_segment_count);
+    TEST_ASSERT_INT(1, path->path_min_x);
+    TEST_ASSERT_INT(-20, path->path_min_y);
+    TEST_ASSERT_INT(15, path->path_max_x);
+    TEST_ASSERT_INT(35, path->path_max_y);
+    TEST_ASSERT_SIZE(0u, output.diagnostics.count);
+    trytr_parser_output_destroy(&output);
+    return true;
+}
+
+static bool test_path_keeps_compact_signed_coordinates_and_parenthesized_subtraction(void)
+{
+    static const char compact[] = "@document(version:1){@path{M 10-20}}";
+    TrytrParserOutput output;
+    TEST_ASSERT(trytr_parser_parse(compact, sizeof(compact) - 1u, &output));
+    const TrytrNode *path = output.root->children;
+    TEST_ASSERT(assert_node_text(path, "M 10 -20"));
+    TEST_ASSERT_INT(10, path->path_min_x);
+    TEST_ASSERT_INT(-20, path->path_min_y);
+    trytr_parser_output_destroy(&output);
+
+    static const char arithmetic[] =
+        "@document(version:1){@path{M (10 - 20) (8 - 3)}}";
+    TEST_ASSERT(trytr_parser_parse(arithmetic, sizeof(arithmetic) - 1u, &output));
+    TEST_ASSERT(assert_node_text(output.root->children, "M -10 5"));
+    trytr_parser_output_destroy(&output);
+    return true;
+}
+
+static bool test_path_parameter_overrides_refold_canonical_coordinates(void)
+{
+    static const char source[] =
+        "@document(version:1){"
+        "@param #x(min:0,max:10,value:3,step:1){X}"
+        "@param #y(min:0,max:10,value:4,step:1){Y}"
+        "@path{M #x #y L (#x + 1) (#y + 1)}}";
+    TrytrParserOutput output;
+    TEST_ASSERT(trytr_parser_parse(source, sizeof(source) - 1u, &output));
+    TEST_ASSERT(assert_node_text(output.root->children, "M 3 4 L 4 5"));
+    trytr_parser_output_destroy(&output);
+
+    const TrytrParameterOverride overrides[] = {
+        {.id = "x", .value = 7},
+        {.id = "y", .value = 8}
+    };
+    TEST_ASSERT(trytr_parser_parse_with_parameters(
+        source, sizeof(source) - 1u, overrides, 2u, &output));
+    TEST_ASSERT(assert_node_text(output.root->children, "M 7 8 L 8 9"));
+    TEST_ASSERT_INT(7, output.root->children->path_min_x);
+    TEST_ASSERT_INT(8, output.root->children->path_min_y);
+    trytr_parser_output_destroy(&output);
+    return true;
+}
+
+static bool test_path_expression_errors_are_bounded_and_located(void)
+{
+    static const struct {
+        const char *source;
+        const char *code;
+        const char *needle;
+    } cases[] = {
+        {"@document(version:1){@path{M (1+) 2}}", "TRYTR-E-EXPR", ")"},
+        {"@document(version:1){@path{M 1}}", "TRYTR-E-EXPR", "}}"},
+        {"@document(version:1){@path{M 1 2 L 3}}", "TRYTR-E-EXPR", "}}"},
+        {"@document(version:1){@path{M 1 2 L 3 4 5}}", "TRYTR-E-PATH", "5}"},
+        {"@document(version:1){@path{M 1,,2}}", "TRYTR-E-EXPR", ",2"},
+        {"@document(version:1){@path{M 1 2 A 3 4}}", "TRYTR-E-PATH", "A 3"},
+        {"@document(version:1){@path{M #missing 0}}", "TRYTR-E-PARAMETER", "#missing"},
+        {"@document(version:1){@path{M (1 / 0) 4}}", "TRYTR-E-EXPR", "/"},
+        {"@document(version:1){@path{M (9223372036854775807 + 1) 0}}",
+         "TRYTR-E-OVERFLOW", "+"},
+        {"@document(version:1){@path{M (-9223372036854775808 / -1) 0}}",
+         "TRYTR-E-OVERFLOW", "/"},
+        {"@document(version:1){@path{M 9223372036854775808 0}}",
+         "TRYTR-E-INTEGER", "9223372036854775808"},
+        {"@document(version:1){@path{M (1000000 + 1) 0}}",
+         "TRYTR-E-COORDINATE", "("}
+    };
+
+    for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        TrytrParserOutput output;
+        const size_t length = strlen(cases[index].source);
+        TEST_ASSERT(!trytr_parser_parse(cases[index].source, length, &output));
+        const TrytrDiagnostic *diagnostic = find_diagnostic(&output, cases[index].code);
+        TEST_ASSERT(diagnostic != NULL);
+        const char *path_body = strstr(cases[index].source, "@path{");
+        TEST_ASSERT(path_body != NULL);
+        path_body += strlen("@path{");
+        const char *expected_location = strstr(path_body, cases[index].needle);
+        TEST_ASSERT(expected_location != NULL);
+        TEST_ASSERT_SIZE((size_t)(expected_location - cases[index].source),
+                         diagnostic->location.offset);
+        trytr_parser_output_destroy(&output);
+    }
+
+    static const char endpoints[] =
+        "@document(version:1){@path{M -1000000 1000000 L 1000000 -1000000}}";
+    TrytrParserOutput output;
+    TEST_ASSERT(trytr_parser_parse(endpoints, sizeof(endpoints) - 1u, &output));
+    TEST_ASSERT_INT(-1000000, output.root->children->path_min_x);
+    TEST_ASSERT_INT(-1000000, output.root->children->path_min_y);
+    TEST_ASSERT_INT(1000000, output.root->children->path_max_x);
+    TEST_ASSERT_INT(1000000, output.root->children->path_max_y);
+    trytr_parser_output_destroy(&output);
+    return true;
+}
+
 static bool test_source_and_nesting_limits(void)
 {
     const size_t source_length = TRYTR_DEFAULT_SOURCE_LIMIT + 1u;
@@ -304,6 +426,10 @@ static const TrytrTestCase tests[] = {
     {"unknown element recovery", test_unknown_element_recovers_at_later_nodes},
     {"malformed documents", test_malformed_documents_have_diagnostics},
     {"path parsing and diagnostics", test_path_is_parsed_and_invalid_commands_are_located},
+    {"path expression folding for all commands", test_path_integer_expressions_fold_for_every_command_family},
+    {"compact coordinates and subtraction", test_path_keeps_compact_signed_coordinates_and_parenthesized_subtraction},
+    {"path parameter overrides", test_path_parameter_overrides_refold_canonical_coordinates},
+    {"path expression errors and bounds", test_path_expression_errors_are_bounded_and_located},
     {"source and nesting limits", test_source_and_nesting_limits},
     {"node and diagnostic limits", test_node_and_diagnostic_limits}
 };
