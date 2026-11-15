@@ -164,9 +164,11 @@ the same `rgb(red, green, blue)` form as other shapes; width is from 0 through
 32 document units.
 
 For a function, start the plot block with `y =` and set its integer x range.
-Trytr samples the expression at evenly spaced (fractional) x values, then
-builds a smooth cubic path through the evaluated points. The default range is -10 through 10 and the
-default is 257 samples; `samples` may be set from 2 through 1,024:
+Trytr starts with evenly spaced (fractional) samples, then adds points where
+the curve deviates from a straight chord by more than half a screen pixel. Those
+points feed a shape-preserving cubic path. The default range is -10 through 10
+and the baseline is 257 samples; `samples` may be set from 2 through 1,024.
+Adaptive work is bounded to 2,048 final points:
 
 ```trytr
 @plot #wave(20,30,400,180)(x-min:-8,x-max:8,samples:321,markers:false) {
@@ -178,6 +180,8 @@ Formula plots use the same scalar functions as `@expr`, plus the independent
 variable `x`. A sample where the function is undefined, non-finite, or outside
 the coordinate limit invalidates the plot. Sample count and expression size
 are bounded, and decimal precision is preserved through SVG and text rendering.
+Increase the baseline for rapidly oscillating expressions, which can alias
+between adaptive probes.
 
 You can also use named values, for example:
 
@@ -351,8 +355,9 @@ command = "python3"
 args = ["/absolute/path/to/trytr-lang/mcp/trytr_mcp.py"]
 ```
 
-The server uses `build/debug/trytr` by default and has no Python package
-dependencies. It accepts up to 1 MiB of source and returns previews up to 2 MiB.
+The server uses `build/debug/trytr` and `build/debug/proof/trytr-proof` by default
+and has no Python package dependencies. It accepts up to 1 MiB of document source
+and returns previews up to 2 MiB.
 It keeps at most four previews in memory for ten minutes; restarting the server
 clears them, so render the source again if an old preview is unavailable.
 Set `TRYTR_EXECUTABLE` or pass `--trytr /path/to/trytr` when using a different
@@ -368,6 +373,12 @@ character-grid drawing directly in chat. MCP Apps clients open the scalable
 vector preview, even if the model selected the text fallback. This keeps the
 final graph smooth where the host can render it, while retaining usable text
 output for plain chat and terminal clients.
+
+The `review_trytr_math` tool checks one equality per line as an exact polynomial
+identity over rational coefficients. It reports verified rows, counterexamples,
+and unsupported rows separately. It does not certify prose, assumptions,
+inequalities, or a complete proof. Set `TRYTR_PROOF_EXECUTABLE` or pass
+`--trytr-proof /path/to/trytr-proof` to use a checker from another build.
 
 ## Examples
 

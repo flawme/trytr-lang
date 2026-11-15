@@ -105,6 +105,10 @@ endif()
 
 include(CTest)
 
+# Keep the reusable proof checker in its own module while building it alongside
+# the language so editor integrations can offer verified equation review.
+add_subdirectory(proof)
+
 if(BUILD_TESTING)
     function(trytr_add_test target test_name source)
         add_executable(${target} ${source})
@@ -233,6 +237,7 @@ if(BUILD_TESTING)
                 "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_mcp.py"
                 "$<TARGET_FILE:trytr>"
+                "$<TARGET_FILE:trytr-proof>"
         )
         if(TRYTR_CHROMIUM_EXECUTABLE)
             add_test(

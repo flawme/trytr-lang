@@ -95,16 +95,19 @@ listed in the public header. Formula plots bind `x`, evaluate the expression
 over a bounded integer interval, and keep the resulting decimal coordinates
 through the SVG and text renderers.
 
-Formula plotting uses an author-selected, uniform sample count (257 by default,
-up to 1,024), then fits a cubic path through those samples. This produces a
-smooth vector path while keeping work and output size predictable. Uniform
-sampling can miss narrow features in a rapidly varying function; the plot
-should therefore be read as an approximation at the chosen sample density.
-Classical graphics work on adaptive subdivision instead sets an error tolerance
-in projected screen space and adds samples where visible deviation is high;
-see Forsey and Klassen, [An Adaptive Subdivision Algorithm for Crack
+Formula plotting starts with an author-selected uniform baseline (257 samples by
+default, up to 1,024), then adaptively subdivides intervals whose sampled curve
+deviates from its chord by more than half a screen pixel. It probes each interval
+at quarter, midpoint, and three-quarter positions, scales the tolerance by the
+plot's height and observed y range, and caps the final point set at 2,048. The
+resulting samples feed the shape-preserving cubic path. If the requested accuracy
+cannot be met within the depth or point budget, parsing reports a bounded-limit
+diagnostic instead of silently accepting an under-resolved curve. Adaptive
+subdivision follows the projected-flatness approach used in graphics; see Forsey
+and Klassen, [An Adaptive Subdivision Algorithm for Crack
 Prevention](https://graphicsinterface.org/wp-content/uploads/gi1990-1.pdf).
-That is a useful next improvement if Trytr adds automatic sample selection.
+Finite probes can still miss a high-frequency feature that aliases at all tested
+locations, so increase the baseline `samples` for rapidly oscillating functions.
 
 The matrix type represents only linear maps. Translation has a separate affine
 type whose composition order is explicit: `left * right` applies the right

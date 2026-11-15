@@ -25,14 +25,22 @@ APP_SERVER_META = {
 class TrytrMcpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if len(sys.argv) != 2:
-            raise RuntimeError("expected path to the Trytr executable")
-        cls.trytr_executable = sys.argv.pop()
+        arguments = sys.argv[1:]
+        if not arguments or len(arguments) > 2:
+            raise RuntimeError("expected Trytr executable and optional proof executable")
+        cls.trytr_executable = arguments[0]
+        cls.proof_executable = arguments[1] if len(arguments) == 2 else None
+
+    def server_command(self):
+        command = [sys.executable, str(SERVER), "--trytr", self.trytr_executable]
+        if self.proof_executable:
+            command.extend(["--trytr-proof", self.proof_executable])
+        return command
 
     def run_server(self, requests):
         input_text = "".join(json.dumps(request) + "\n" for request in requests)
         completed = subprocess.run(
-            [sys.executable, str(SERVER), "--trytr", self.trytr_executable],
+            self.server_command(),
             input=input_text,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -45,7 +53,7 @@ class TrytrMcpTests(unittest.TestCase):
 
     def start_server(self):
         process = subprocess.Popen(
-            [sys.executable, str(SERVER), "--trytr", self.trytr_executable],
+            self.server_command(),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -205,7 +213,7 @@ class TrytrMcpTests(unittest.TestCase):
             },
         ])
         self.assertEqual(
-            ["render_trytr", "render_trytr_text"],
+            ["render_trytr", "render_trytr_text", "review_trytr_math"],
             [tool["name"] for tool in tools["result"]["tools"]],
         )
         result = result["result"]
@@ -468,10 +476,10 @@ class TrytrMcpTests(unittest.TestCase):
                 "params": {"_meta": APP_SERVER_META},
             })["result"]["tools"]
             self.assertEqual(
-                ["render_trytr", "render_trytr_text", "get_trytr_preview"],
+                ["render_trytr", "render_trytr_text", "review_trytr_math", "get_trytr_preview"],
                 [tool["name"] for tool in tools],
             )
-            self.assertEqual(["app"], tools[2]["_meta"]["ui"]["visibility"])
+            self.assertEqual(["app"], tools[3]["_meta"]["ui"]["visibility"])
 
             rendered = exchange({
                 "jsonrpc": "2.0",
@@ -568,7 +576,7 @@ class TrytrMcpTests(unittest.TestCase):
         list_tools = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
         raw_input = json.dumps(initialize) + "\nthis is not json\n" + json.dumps(list_tools) + "\n"
         completed = subprocess.run(
-            [sys.executable, str(SERVER), "--trytr", self.trytr_executable],
+            self.server_command(),
             input=raw_input,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -583,6 +591,65 @@ class TrytrMcpTests(unittest.TestCase):
         tool = responses[2]["result"]["tools"][0]
         self.assertEqual("render_trytr", tool["name"])
         self.assertNotIn("_meta", tool)
+
+    def test_math_review_reports_identity_counterexample_and_unsupported_row(self):
+        if self.proof_executable is None:
+            self.skipTest("proof executable is not configured")
+        source = (
+            "(x+y)^2 = x^2+2xy+y^2\n"
+            "x^2 = x\n"
+            "\\sin(x) = x\n"
+        )
+        responses = self.run_server([
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "review_trytr_math",
+                    "arguments": {"source": source},
+                },
+            },
+        ])
+        result = responses[1]["result"]["structuredContent"]
+        self.assertFalse(responses[1]["result"]["isError"])
+        self.assertIn("Line 1 (verified)", responses[1]["result"]["content"][0]["text"])
+        self.assertFalse(result["ok"])
+        self.assertEqual("needs_review", result["status"])
+        self.assertEqual(
+            ["verified", "not_an_identity", "unable_to_check"],
+            [row["status"] for row in result["results"]],
+        )
+        self.assertEqual([1, 2, 3], [row["line"] for row in result["results"]])
+
+    def test_math_review_rejects_oversized_input(self):
+        responses = self.run_server([
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "review_trytr_math",
+                    "arguments": {"source": "x=x\n" + (" " * (64 * 1024))},
+                },
+            },
+        ])
+        result = responses[1]["result"]["structuredContent"]
+        self.assertTrue(responses[1]["result"]["isError"])
+        self.assertEqual("unable_to_check", result["status"])
+        self.assertIn("64 KiB", result["message"])
 
     def test_oversized_vector_preview_is_rejected(self):
         source = "@document(version:1){@text{" + ("<" * 600_000) + "}}"

@@ -16,6 +16,8 @@ import sys
 import time
 from typing import Any
 
+from proof_review import REVIEW_TOOL, review_math, resolve_proof_executable
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MODERN_VERSION = "2026-07-28"
@@ -50,7 +52,9 @@ SERVER_INSTRUCTIONS = (
     "bounded x ranges and sample counts. Scalar functions are available in @expr "
     "and formula plots. Declared @param values are returned as preview controls; "
     "pass integer overrides in the parameters object to re-render the document. "
-    "Both modes validate and render locally after receiving the complete source."
+    "Both modes validate and render locally after receiving the complete source. "
+    "review_trytr_math checks supported polynomial equalities; it does not prove "
+    "prose, assumptions, or unsupported mathematics."
 )
 SERVER_META = {"io.modelcontextprotocol/serverInfo": SERVER_INFO}
 
@@ -68,7 +72,8 @@ TOOLS = [
             "This is a local vector view, not image generation. "
             "Declared @param values appear as controls in MCP Apps previews and can "
             "be overridden with the optional parameters object. Formula plots use "
-            "y = expression blocks with x-min, x-max, and samples options. "
+            "y = expression blocks with x-min, x-max, and samples options; the "
+            "baseline is refined where sampled curvature exceeds half a screen pixel. "
             "On invalid source, return parser or validation diagnostics."
         ),
         "inputSchema": {
@@ -187,6 +192,7 @@ TOOLS = [
         },
     }
 ]
+TOOLS.append(REVIEW_TOOL)
 APP_TOOLS = [
     {
         "name": "get_trytr_preview",
@@ -601,6 +607,7 @@ def _render_document(
 def handle_request(
     message: Any,
     executable: str,
+    proof_executable: str | None = None,
     legacy_initialized: bool = False,
     legacy_apps_supported: bool = False,
 ) -> dict[str, Any] | None:
@@ -698,6 +705,18 @@ def handle_request(
         return _response(request_id, resource)
     if method == "tools/call":
         tool_name = params.get("name")
+        if tool_name == "review_trytr_math":
+            arguments = params.get("arguments")
+            if not isinstance(arguments, dict) or set(arguments) != {"source"}:
+                return _error(
+                    request_id,
+                    -32602,
+                    "review_trytr_math requires only a string 'source' argument",
+                )
+            result = review_math(arguments.get("source"), proof_executable)
+            if is_modern:
+                return _response(request_id, _modern_result(result))
+            return _response(request_id, result)
         if tool_name == "get_trytr_preview":
             if not apps_supported:
                 return _error(request_id, -32602, "This MCP client did not negotiate MCP Apps support")
@@ -735,7 +754,7 @@ def _write_message(message: dict[str, Any]) -> None:
     sys.stdout.buffer.flush()
 
 
-def serve(executable: str) -> int:
+def serve(executable: str, proof_executable: str | None = None) -> int:
     legacy_initialized = False
     legacy_apps_supported = False
     while True:
@@ -759,7 +778,13 @@ def serve(executable: str) -> int:
             legacy_initialized = version in LEGACY_VERSIONS
             client_caps = initialize_params.get("capabilities") if isinstance(initialize_params, dict) else None
             legacy_apps_supported = _supports_apps(client_caps)
-        response = handle_request(message, executable, legacy_initialized, legacy_apps_supported)
+        response = handle_request(
+            message,
+            executable,
+            proof_executable,
+            legacy_initialized,
+            legacy_apps_supported,
+        )
         if response is not None:
             _write_message(response)
 
@@ -786,13 +811,19 @@ def resolve_executable(explicit: str | None) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trytr", help="path to the Trytr executable")
+    parser.add_argument("--trytr-proof", help="path to the Trytr math proof checker")
     arguments = parser.parse_args()
     try:
         executable = resolve_executable(arguments.trytr)
     except FileNotFoundError as error:
         print(f"trytr-mcp: {error}", file=sys.stderr)
         return 2
-    return serve(executable)
+    try:
+        proof_executable = resolve_proof_executable(arguments.trytr_proof, ROOT)
+    except FileNotFoundError as error:
+        print(f"trytr-mcp: {error}", file=sys.stderr)
+        return 2
+    return serve(executable, proof_executable)
 
 
 if __name__ == "__main__":

@@ -247,7 +247,8 @@ static bool test_formula_plot_samples_math_expression_and_renders_smoothly(void)
     TEST_ASSERT_INT(TRYTR_STATUS_OK,
         trytr_document_execute(document, capture_plot, &capture));
     TEST_ASSERT(capture.seen && capture.formula);
-    TEST_ASSERT_SIZE(9u, capture.point_count);
+    TEST_ASSERT(capture.point_count > 9u);
+    TEST_ASSERT(capture.point_count <= TRYTR_DEFAULT_PLOT_POINT_LIMIT);
     TEST_ASSERT(capture.plot_min_x == -4.0 && capture.plot_max_x == 4.0);
     TEST_ASSERT(capture.plot_min_y == -1.0 && capture.plot_max_y == 3.0);
     TEST_ASSERT(contains(capture.data, "-4,3"));
@@ -296,6 +297,56 @@ static bool test_formula_plot_preserves_fractional_x_samples_in_both_renderers(v
     TEST_ASSERT_INT(TRYTR_STATUS_OK, trytr_text_render(document, &text, &length));
     TEST_ASSERT(contains_non_ascii(text));
     free(text);
+    trytr_document_destroy(document);
+    return true;
+}
+
+static bool test_formula_plot_refines_curvature_in_screen_space(void)
+{
+    static const char source[] =
+        "@document(version:1,width:900,height:900){"
+        "@plot(20,20,800,800)(x-min:-2,x-max:2,samples:3,"
+        "grid:false,markers:false){y=x^2}}";
+    TrytrDocument *document = NULL;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+        trytr_document_parse(source, sizeof(source) - 1u, &document));
+    PlotCapture capture = {0};
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+        trytr_document_execute(document, capture_plot, &capture));
+    TEST_ASSERT(capture.formula);
+    TEST_ASSERT(capture.point_count > 3u);
+    TEST_ASSERT(capture.point_count <= TRYTR_DEFAULT_PLOT_POINT_LIMIT);
+    TEST_ASSERT(contains(capture.data, "-2,4"));
+    TEST_ASSERT(contains(capture.data, "0,0"));
+    TEST_ASSERT(contains(capture.data, "2,4"));
+    TEST_ASSERT(capture.plot_min_y == 0.0 && capture.plot_max_y == 4.0);
+    trytr_document_destroy(document);
+
+    static const char small_plot[] =
+        "@document(version:1,width:900,height:90){"
+        "@plot(20,20,800,40)(x-min:-2,x-max:2,samples:3,"
+        "grid:false,markers:false){y=x^2}}";
+    document = NULL;
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+        trytr_document_parse(small_plot, sizeof(small_plot) - 1u, &document));
+    PlotCapture small_capture = {0};
+    TEST_ASSERT_INT(TRYTR_STATUS_OK,
+        trytr_document_execute(document, capture_plot, &small_capture));
+    TEST_ASSERT(small_capture.point_count < capture.point_count);
+    trytr_document_destroy(document);
+    return true;
+}
+
+static bool test_formula_plot_rejects_underresolved_curves_at_budget(void)
+{
+    static const char source[] =
+        "@document(version:1,width:1100,height:1100){"
+        "@plot(20,20,1000,1000)(x-min:-1,x-max:1,samples:3,"
+        "grid:false,markers:false){y=sin(1000*x)}}";
+    TrytrDocument *document = NULL;
+    TEST_ASSERT_INT(TRYTR_STATUS_INVALID_DOCUMENT,
+        trytr_document_parse(source, sizeof(source) - 1u, &document));
+    TEST_ASSERT(diagnostic_present(document, "TRYTR-E-PLOT-RESOLUTION"));
     trytr_document_destroy(document);
     return true;
 }
@@ -442,6 +493,10 @@ static const TrytrTestCase tests[] = {
      test_formula_plot_samples_math_expression_and_renders_smoothly},
     {"formula plot fractional samples",
      test_formula_plot_preserves_fractional_x_samples_in_both_renderers},
+    {"formula plot screen-space adaptive sampling",
+     test_formula_plot_refines_curvature_in_screen_space},
+    {"formula plot adaptive point budget",
+     test_formula_plot_rejects_underresolved_curves_at_budget},
     {"formula plot sample limits",
      test_formula_plot_sample_limit_is_enforced_at_both_ends},
     {"formula plot failures", test_formula_plot_rejects_invalid_domain_and_math_domain},

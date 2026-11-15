@@ -11,6 +11,7 @@ typedef enum TrytrPlotFormulaStatus {
     TRYTR_PLOT_FORMULA_INVALID,
     TRYTR_PLOT_FORMULA_DOMAIN,
     TRYTR_PLOT_FORMULA_LIMIT_EXCEEDED,
+    TRYTR_PLOT_FORMULA_RESOLUTION_LIMIT,
     TRYTR_PLOT_FORMULA_NO_MEMORY
 } TrytrPlotFormulaStatus;
 
@@ -20,6 +21,7 @@ TrytrPlotFormulaStatus trytr_plot_formula_sample(
     double min_x,
     double max_x,
     size_t sample_count,
+    double screen_height,
     TrytrArena *arena,
     char **out_points,
     size_t *out_length,

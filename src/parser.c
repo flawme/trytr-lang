@@ -1347,11 +1347,16 @@ static void parse_plot_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
         int64_t min_x = -10;
         int64_t max_x = 10;
         int64_t samples = 257;
+        double screen_height = 1.0;
         for (const TrytrProperty *property = node->properties;
              property != NULL; property = property->next) {
             if (strcmp(property->name, "x-min") == 0) min_x = property->integer_value;
             else if (strcmp(property->name, "x-max") == 0) max_x = property->integer_value;
             else if (strcmp(property->name, "samples") == 0) samples = property->integer_value;
+            else if (strcmp(property->name, "height") == 0 &&
+                     property->integer_value > 0) {
+                screen_height = (double)property->integer_value;
+            }
         }
         if (min_x >= max_x || min_x < -TRYTR_DEFAULT_COORDINATE_LIMIT ||
             max_x > TRYTR_DEFAULT_COORDINATE_LIMIT) {
@@ -1379,7 +1384,7 @@ static void parse_plot_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
         size_t formula_error_offset = 0u;
         const TrytrPlotFormulaStatus formula_status = trytr_plot_formula_sample(
             expanded_formula, expanded_formula_length, (double)min_x,
-            (double)max_x, (size_t)samples, &parser->output->arena,
+            (double)max_x, (size_t)samples, screen_height, &parser->output->arena,
             &node->text, &node->text_length, &formula_analysis,
             &formula_error_offset);
         if (formula_status != TRYTR_PLOT_FORMULA_OK) {
@@ -1393,6 +1398,9 @@ static void parse_plot_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
             } else if (formula_status == TRYTR_PLOT_FORMULA_LIMIT_EXCEEDED) {
                 error(parser, "TRYTR-E-LIMIT", location,
                       "formula exceeds its operation or output limit");
+            } else if (formula_status == TRYTR_PLOT_FORMULA_RESOLUTION_LIMIT) {
+                error(parser, "TRYTR-E-PLOT-RESOLUTION", location,
+                      "formula exceeds the bounded adaptive sampling depth or point budget");
             } else if (formula_status == TRYTR_PLOT_FORMULA_DOMAIN) {
                 error(parser, "TRYTR-E-PLOT-FORMULA", location,
                       "formula is undefined or outside the coordinate range at a sample");
