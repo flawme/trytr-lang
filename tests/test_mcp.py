@@ -1,7 +1,9 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from xml.etree import ElementTree
 
@@ -39,19 +41,27 @@ class TrytrMcpTests(unittest.TestCase):
 
     def run_server(self, requests):
         input_text = "".join(json.dumps(request) + "\n" for request in requests)
-        completed = subprocess.run(
-            self.server_command(),
-            input=input_text,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=30,
-        )
+        with tempfile.TemporaryDirectory(prefix="trytr-mcp-test-state-") as state_directory:
+            environment = os.environ.copy()
+            environment["TRYTR_MCP_STATE_DIR"] = state_directory
+            completed = subprocess.run(
+                self.server_command(),
+                input=input_text,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=30,
+                env=environment,
+            )
         self.assertEqual(0, completed.returncode, completed.stderr)
         return [json.loads(line) for line in completed.stdout.splitlines()]
 
     def start_server(self):
+        state_directory = tempfile.TemporaryDirectory(prefix="trytr-mcp-test-state-")
+        self.addCleanup(state_directory.cleanup)
+        environment = os.environ.copy()
+        environment["TRYTR_MCP_STATE_DIR"] = state_directory.name
         process = subprocess.Popen(
             self.server_command(),
             stdin=subprocess.PIPE,
@@ -59,6 +69,7 @@ class TrytrMcpTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=environment,
         )
 
         def exchange(request):
@@ -218,6 +229,8 @@ class TrytrMcpTests(unittest.TestCase):
                 "render_trytr_text",
                 "review_trytr_math",
                 "check_trytr_certificate",
+                "health_check",
+                "read_server_log",
             ],
             [tool["name"] for tool in tools["result"]["tools"]],
         )
@@ -486,11 +499,13 @@ class TrytrMcpTests(unittest.TestCase):
                     "render_trytr_text",
                     "review_trytr_math",
                     "check_trytr_certificate",
+                    "health_check",
+                    "read_server_log",
                     "get_trytr_preview",
                 ],
                 [tool["name"] for tool in tools],
             )
-            self.assertEqual(["app"], tools[4]["_meta"]["ui"]["visibility"])
+            self.assertEqual(["app"], tools[6]["_meta"]["ui"]["visibility"])
 
             rendered = exchange({
                 "jsonrpc": "2.0",
@@ -803,6 +818,100 @@ class TrytrMcpTests(unittest.TestCase):
                 for result in invalid_source_results
             )
         )
+
+    def test_health_and_request_log_expose_metadata_without_document_source(self):
+        sentinel = "PRIVATE_SOURCE_SENTINEL_2af1d9"
+        responses = self.run_server([
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "health-id",
+                "method": "tools/call",
+                "params": {"name": "health_check"},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "render-id",
+                "method": "tools/call",
+                "params": {
+                    "name": "render_trytr",
+                    "arguments": {
+                        "source": "@document(version:1){@text{" + sentinel + "}}"
+                    },
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "error-id",
+                "method": "tools/call",
+                "params": {"name": "unknown_tool", "arguments": {}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "log-id",
+                "method": "tools/call",
+                "params": {
+                    "name": "read_server_log",
+                    "arguments": {"limit": 3},
+                },
+            },
+        ])
+        health = responses[1]["result"]["structuredContent"]
+        self.assertTrue(health["ok"])
+        self.assertEqual(1, health["protocolVersion"])
+        self.assertEqual(str(ROOT), health["projectRoot"])
+        self.assertTrue(health["rendererAvailable"])
+        self.assertGreaterEqual(health["uptimeMs"], 0)
+
+        error_response = responses[3]
+        self.assertEqual(-32602, error_response["error"]["code"])
+        log_result = responses[4]["result"]
+        self.assertFalse(log_result["isError"])
+        entries = log_result["structuredContent"]["entries"]
+        self.assertEqual(
+            ["health-id", "render-id", "error-id"],
+            [entry["requestId"] for entry in entries],
+        )
+        self.assertEqual(
+            ["health_check", "render_trytr", "unknown_tool"],
+            [entry["tool"] for entry in entries],
+        )
+        self.assertTrue(all(entry["project"] == str(ROOT) for entry in entries))
+        self.assertTrue(all(entry["durationMs"] >= 0 for entry in entries))
+        self.assertEqual(
+            {"type": "jsonrpc", "code": -32602, "status": "request_error"},
+            entries[2]["error"],
+        )
+        self.assertNotIn(sentinel, json.dumps(log_result))
+
+    def test_request_log_rejects_unbounded_or_unknown_arguments(self):
+        responses = self.run_server([
+            {
+                "jsonrpc": "2.0",
+                "id": "init",
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "wrong-limit",
+                "method": "tools/call",
+                "params": {"name": "read_server_log", "arguments": {"limit": True}},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "extra-arg",
+                "method": "tools/call",
+                "params": {"name": "health_check", "arguments": {"path": "/tmp"}},
+            },
+        ])
+        self.assertEqual(-32602, responses[1]["error"]["code"])
+        self.assertEqual(-32602, responses[2]["error"]["code"])
 
     def test_oversized_vector_preview_is_rejected(self):
         source = "@document(version:1){@text{" + ("<" * 600_000) + "}}"

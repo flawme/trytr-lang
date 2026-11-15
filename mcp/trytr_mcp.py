@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -46,6 +48,9 @@ UI_RESOURCE = ROOT / "mcp" / "ui" / "preview.html"
 MAX_CACHED_PREVIEWS = 4
 PREVIEW_TTL_SECONDS = 10 * 60
 PREVIEW_CACHE: OrderedDict[str, tuple[float, tuple[str, str]]] = OrderedDict()
+SERVER_STARTED_AT = time.monotonic()
+MAX_REQUEST_LOG_BYTES = 256 * 1024
+MAX_LOG_READ_ENTRIES = 100
 
 SERVER_INFO = {"name": "trytr-renderer", "version": "0.1.0"}
 SERVER_INSTRUCTIONS = (
@@ -62,7 +67,9 @@ SERVER_INSTRUCTIONS = (
     "review_trytr_math checks supported polynomial equalities; it does not prove "
     "prose, assumptions, or unsupported mathematics. check_trytr_certificate runs "
     "the small built-in checker for supported formal certificate formats; it is "
-    "not a general theorem prover."
+    "not a general theorem prover. Use health_check and read_server_log to "
+    "diagnose server availability and recent request handling; request logs never "
+    "include document or tool argument contents."
 )
 SERVER_META = {"io.modelcontextprotocol/serverInfo": SERVER_INFO}
 
@@ -202,6 +209,114 @@ TOOLS = [
 ]
 TOOLS.append(REVIEW_TOOL)
 TOOLS.append(CHECK_CERTIFICATE_TOOL)
+TOOLS.extend([
+    {
+        "name": "health_check",
+        "title": "Check Trytr MCP health",
+        "description": (
+            "Return server protocol version, process ID, uptime, project and state paths, "
+            "and whether the renderer and proof checker are available."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "protocolVersion": {
+                    "type": "integer",
+                    "description": "Health payload schema version, currently 1.",
+                },
+                "serverPid": {"type": "integer"},
+                "projectRoot": {"type": "string"},
+                "stateDirectory": {"type": "string"},
+                "uptimeMs": {"type": "integer"},
+                "rendererAvailable": {"type": "boolean"},
+                "proofCheckerAvailable": {"type": "boolean"},
+            },
+            "required": [
+                "ok", "protocolVersion", "serverPid", "projectRoot", "stateDirectory",
+                "uptimeMs", "rendererAvailable", "proofCheckerAvailable",
+            ],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+    {
+        "name": "read_server_log",
+        "title": "Read recent Trytr MCP requests",
+        "description": (
+            "Read recent request IDs, method/tool names, project, durations, and safe error "
+            "categories. Logs never contain source documents or tool argument values."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "timestamp": {"type": "string"},
+                            "requestId": {"type": "string"},
+                            "method": {"type": "string"},
+                            "tool": {"type": "string"},
+                            "project": {"type": "string"},
+                            "durationMs": {"type": "number"},
+                            "error": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {"type": "string"},
+                                            "code": {
+                                                "anyOf": [
+                                                    {"type": "integer"},
+                                                    {"type": "null"},
+                                                ]
+                                            },
+                                            "status": {"type": "string"},
+                                        },
+                                        "required": ["type", "code", "status"],
+                                        "additionalProperties": False,
+                                    },
+                                    {"type": "null"},
+                                ]
+                            },
+                        },
+                        "required": [
+                            "timestamp", "requestId", "method", "tool", "project",
+                            "durationMs", "error",
+                        ],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["ok", "entries"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    },
+])
 APP_TOOLS = [
     {
         "name": "get_trytr_preview",
@@ -247,6 +362,180 @@ def _error(request_id: Any, code: int, message: str, data: Any = None) -> dict[s
 
 def _modern_result(payload: dict[str, Any]) -> dict[str, Any]:
     return {"resultType": "complete", **payload, "_meta": SERVER_META}
+
+
+def _state_directory() -> Path:
+    configured = os.environ.get("TRYTR_MCP_STATE_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    state_root = os.environ.get("XDG_STATE_HOME")
+    if state_root:
+        return (Path(state_root).expanduser() / "trytr-mcp").resolve()
+    return (Path.home() / ".local" / "state" / "trytr-mcp").resolve()
+
+
+def _request_log_path() -> Path:
+    return _state_directory() / "requests.jsonl"
+
+
+def _safe_log_text(value: str, limit: int) -> str:
+    return value.encode("utf-8", errors="replace").decode("utf-8")[:limit]
+
+
+def _append_request_log(record: dict[str, Any]) -> None:
+    path = _request_log_path()
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        line = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("ascii") + b"\n"
+        if len(line) > 4096:
+            return
+        if path.exists() and path.stat().st_size + len(line) > MAX_REQUEST_LOG_BYTES:
+            rotated = path.with_suffix(".jsonl.1")
+            rotated.unlink(missing_ok=True)
+            os.replace(path, rotated)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "ab") as log_file:
+            log_file.write(line)
+    except OSError:
+        # Logging must never prevent a tool response from reaching its client.
+        return
+
+
+def _read_request_log(limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in (_request_log_path().with_suffix(".jsonl.1"), _request_log_path()):
+        try:
+            if path.is_symlink() or path.stat().st_size > MAX_REQUEST_LOG_BYTES + 4096:
+                continue
+            lines = path.read_bytes().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if len(line) > 4096:
+                continue
+            try:
+                entry = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if not isinstance(entry, dict):
+                continue
+            if not all(
+                isinstance(entry.get(field), str)
+                for field in ("timestamp", "requestId", "method", "tool", "project")
+            ):
+                continue
+            duration = entry.get("durationMs")
+            if (
+                not isinstance(duration, (int, float))
+                or isinstance(duration, bool)
+                or not math.isfinite(duration)
+            ):
+                continue
+            error = entry.get("error")
+            if error is not None:
+                if not isinstance(error, dict):
+                    continue
+                if (
+                    not isinstance(error.get("type"), str)
+                    or (
+                        error.get("code") is not None
+                        and (
+                            not isinstance(error.get("code"), int)
+                            or isinstance(error.get("code"), bool)
+                        )
+                    )
+                    or not isinstance(error.get("status"), str)
+                ):
+                    continue
+                error = {
+                    "type": _safe_log_text(error["type"], 32),
+                    "code": error.get("code"),
+                    "status": _safe_log_text(error["status"], 64),
+                }
+            rows.append({
+                "timestamp": _safe_log_text(entry["timestamp"], 64),
+                "requestId": _safe_log_text(entry["requestId"], 128),
+                "method": _safe_log_text(entry["method"], 128),
+                "tool": _safe_log_text(entry["tool"], 128),
+                "project": _safe_log_text(entry["project"], 512),
+                "durationMs": float(duration),
+                "error": error,
+            })
+    return rows[-limit:]
+
+
+def _health_result(executable: str, proof_executable: str | None) -> dict[str, Any]:
+    state_directory = _state_directory()
+    payload = {
+        "ok": True,
+        "protocolVersion": 1,
+        "serverPid": os.getpid(),
+        "projectRoot": str(ROOT),
+        "stateDirectory": str(state_directory),
+        "uptimeMs": max(0, int((time.monotonic() - SERVER_STARTED_AT) * 1000)),
+        "rendererAvailable": Path(executable).is_file() and os.access(executable, os.X_OK),
+        "proofCheckerAvailable": (
+            proof_executable is not None
+            and Path(proof_executable).is_file()
+            and os.access(proof_executable, os.X_OK)
+        ),
+    }
+    return {
+        "content": [{"type": "text", "text": "Trytr MCP process is healthy."}],
+        "structuredContent": payload,
+        "isError": False,
+    }
+
+
+def _server_log_result(limit: int) -> dict[str, Any]:
+    entries = _read_request_log(limit)
+    payload = {"ok": True, "entries": entries}
+    return {
+        "content": [{"type": "text", "text": json.dumps(entries, ensure_ascii=False)}],
+        "structuredContent": payload,
+        "isError": False,
+    }
+
+
+def _request_log_record(
+    message: Any,
+    response: dict[str, Any] | None,
+    duration_ms: float,
+) -> dict[str, Any]:
+    request_id = message.get("id") if isinstance(message, dict) else None
+    method = message.get("method") if isinstance(message, dict) else None
+    params = message.get("params") if isinstance(message, dict) else None
+    tool = params.get("name") if method == "tools/call" and isinstance(params, dict) else ""
+    error: dict[str, Any] | None = None
+    if isinstance(response, dict) and isinstance(response.get("error"), dict):
+        jsonrpc_error = response["error"]
+        code = jsonrpc_error.get("code")
+        error = {
+            "type": "jsonrpc",
+            "code": code if isinstance(code, int) and not isinstance(code, bool) else None,
+            "status": "request_error",
+        }
+    elif isinstance(response, dict):
+        result = response.get("result")
+        if isinstance(result, dict) and result.get("isError") is True:
+            structured = result.get("structuredContent")
+            status = structured.get("status") if isinstance(structured, dict) else "tool_error"
+            if not isinstance(status, str):
+                status = "tool_error"
+            error = {"type": "tool", "code": None, "status": status[:64]}
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "requestId": _safe_log_text(str(request_id), 128) if request_id is not None else "",
+        "method": _safe_log_text(method, 128) if isinstance(method, str) else "",
+        "tool": _safe_log_text(tool, 128) if isinstance(tool, str) else "",
+        "project": str(ROOT),
+        "durationMs": round(max(duration_ms, 0.0), 3),
+        "error": error,
+    }
 
 
 def _supports_apps(capabilities: Any) -> bool:
@@ -714,6 +1003,25 @@ def handle_request(
         return _response(request_id, resource)
     if method == "tools/call":
         tool_name = params.get("name")
+        if tool_name == "health_check":
+            arguments = params.get("arguments", {})
+            if not isinstance(arguments, dict) or arguments:
+                return _error(request_id, -32602, "health_check accepts no arguments")
+            result = _health_result(executable, proof_executable)
+            if is_modern:
+                return _response(request_id, _modern_result(result))
+            return _response(request_id, result)
+        if tool_name == "read_server_log":
+            arguments = params.get("arguments", {})
+            if not isinstance(arguments, dict) or set(arguments) - {"limit"}:
+                return _error(request_id, -32602, "read_server_log accepts only an optional 'limit'")
+            limit = arguments.get("limit", 50)
+            if type(limit) is not int or not 1 <= limit <= MAX_LOG_READ_ENTRIES:
+                return _error(request_id, -32602, "read_server_log limit must be an integer from 1 to 100")
+            result = _server_log_result(limit)
+            if is_modern:
+                return _response(request_id, _modern_result(result))
+            return _response(request_id, result)
         if tool_name == "review_trytr_math":
             arguments = params.get("arguments")
             if not isinstance(arguments, dict) or set(arguments) != {"source"}:
@@ -801,6 +1109,7 @@ def serve(executable: str, proof_executable: str | None = None) -> int:
             legacy_initialized = version in LEGACY_VERSIONS
             client_caps = initialize_params.get("capabilities") if isinstance(initialize_params, dict) else None
             legacy_apps_supported = _supports_apps(client_caps)
+        request_started = time.perf_counter()
         response = handle_request(
             message,
             executable,
@@ -808,6 +1117,9 @@ def serve(executable: str, proof_executable: str | None = None) -> int:
             legacy_initialized,
             legacy_apps_supported,
         )
+        if isinstance(message, dict) and "id" in message:
+            duration_ms = (time.perf_counter() - request_started) * 1000.0
+            _append_request_log(_request_log_record(message, response, duration_ms))
         if response is not None:
             _write_message(response)
 
@@ -835,6 +1147,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trytr", help="path to the Trytr executable")
     parser.add_argument("--trytr-proof", help="path to the Trytr math proof checker")
+    parser.add_argument("--state-dir", help="directory for bounded MCP request logs")
     arguments = parser.parse_args()
     try:
         executable = resolve_executable(arguments.trytr)
@@ -846,6 +1159,8 @@ def main() -> int:
     except FileNotFoundError as error:
         print(f"trytr-mcp: {error}", file=sys.stderr)
         return 2
+    if arguments.state_dir:
+        os.environ["TRYTR_MCP_STATE_DIR"] = arguments.state_dir
     return serve(executable, proof_executable)
 
 

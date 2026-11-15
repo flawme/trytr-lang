@@ -367,6 +367,14 @@ return parser and validation diagnostics for the AI to correct. The first
 render appears as a separate embedded view when the chat client supports MCP
 Apps; otherwise either render tool returns a text-grid fallback.
 
+For connection diagnostics, call `health_check` to confirm the server process,
+build availability, project path, and uptime. `read_server_log` returns recent
+request IDs, method and tool names, durations, and safe error categories. The
+bounded JSONL log never records document text or tool arguments. It is stored in
+`$XDG_STATE_HOME/trytr-mcp/requests.jsonl` or
+`~/.local/state/trytr-mcp/requests.jsonl`; set `TRYTR_MCP_STATE_DIR` or pass
+`--state-dir` to choose another directory.
+
 For a text-only response, call `render_trytr_text` with the same Trytr source.
 Clients without MCP Apps support receive text blocks and a finite-resolution
 character-grid drawing directly in chat. MCP Apps clients open the scalable
