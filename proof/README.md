@@ -22,11 +22,45 @@ from:
 
 It supports up to eight variables, degree 12, exact integer or rational
 coefficients, decimals up to nine places, and common LaTeX forms such as
-`\frac`, `\alpha`, and subscripts. Each row is reported as verified, not a
-polynomial identity, or unable to check. A failed identity means the equality
+`\frac`, `\alpha`, and subscripts. Each row is reported as verified, conditional,
+not an algebraic identity, or unable to check. A failed identity means the equality
 does not hold for all values of its variables; it does not rule out a claim
-that follows from additional assumptions. Functions, variable denominators,
-and unsupported expressions are explicitly left unchecked.
+that follows from additional assumptions. Functions and unsupported
+expressions are explicitly left unchecked.
+
+### Rational expressions and domain conditions
+
+The general CLI/MCP checker also accepts variable denominators, nested
+fractions, and bounded negative integer powers. It checks identities exactly
+by representing each expression as a polynomial numerator/denominator pair
+and comparing cross products. This follows the rational-function model
+described in [SymPy's domain documentation](https://docs.sympy.org/latest/modules/polys/domainsintro.html#rational-function-fields),
+implemented here in bounded C without a SymPy runtime dependency.
+
+For example, `(x^2-1)/(x-1)=x+1` is **conditional** on `(x-1)` being defined and
+nonzero. `x/x=1`, `0/x=0`, and `(x/x)^0=1` retain the `x != 0` requirement.
+Cancellation, multiplication by zero, or a zero power never erase an original
+division's domain restriction. An identically zero divisor is invalid, even
+in a term multiplied by zero. The checker does not prove these nonzero
+conditions from assumptions, and it does not show that both sides have equal
+domains. Conditional results never count as unconditional proofs.
+
+`trytr_algebra_check_rational` in `<trytr/algebra.h>` exposes this review to C
+hosts. `TRYTR_ALGEBRA_CONDITIONAL` includes up to 32 original-source spans for
+divisors that must be defined and nonzero. The original
+`trytr_algebra_check` API retains its strict polynomial-only behavior.
+`.trmath` CLI exit codes are 0 for unconditional identities, 1 for nonidentities,
+and 2 for conditional/invalid/unsupported rows; a mixed document uses the most
+conservative code. MCP reports each conditional row explicitly with `ok:false`
+for the overall review.
+
+All intermediate polynomials remain bounded to eight variables, 128 terms,
+and total degree 12. Source is at most 64 KiB, nesting at most 32, and algebra
+work has a one-million-operation budget. Arithmetic is exact with checked
+64-bit rational coefficients; overflow or budget exhaustion is unsupported.
+There is no general polynomial GCD reduction, so intermediates can hit a bound
+even when the final expression would simplify. Functions, inequalities,
+assumption discharge, and arbitrary prose remain unsupported.
 
 Run the general checker with:
 

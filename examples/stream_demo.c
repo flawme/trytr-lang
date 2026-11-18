@@ -73,7 +73,10 @@ static bool demonstrate(TrytrStream *stream, const char *prefix)
         !report(stream, trytr_stream_feed(stream, "}", 1u)) ||
         !report(stream, trytr_stream_commit_append(stream, &changed)) || !changed ||
         !save(stream, prefix, "3")) return false;
-    return report(stream, trytr_stream_finish(stream));
+    if (!report(stream, trytr_stream_finish(stream))) return false;
+    const TrytrParameterOverride update = {.id = "rate", .value = 3};
+    return report(stream, trytr_stream_set_parameters(stream, 3u, &update, 1u, &changed)) &&
+           changed && save(stream, prefix, "4");
 }
 
 int main(int argc, char **argv)

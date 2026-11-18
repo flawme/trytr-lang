@@ -8,6 +8,7 @@ project(
 )
 
 option(TRYTR_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+include(GNUInstallDirs)
 
 add_library(trytr_build_options INTERFACE)
 target_compile_features(trytr_build_options INTERFACE c_std_23)
@@ -30,7 +31,7 @@ if(TRYTR_ENABLE_SANITIZERS)
 endif()
 
 function(trytr_target_defaults target)
-    target_link_libraries(${target} PRIVATE trytr_build_options)
+    target_link_libraries(${target} PRIVATE "$<BUILD_INTERFACE:trytr_build_options>")
     set_target_properties(
         ${target}
         PROPERTIES C_STANDARD 23 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF
@@ -51,7 +52,8 @@ add_library(
         src/math/curve_interpolate.c
         src/math/curve_raster.c
 )
-target_include_directories(trytr_math PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(trytr_math PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 if(UNIX)
     target_link_libraries(trytr_math PUBLIC m)
 endif()
@@ -87,8 +89,10 @@ add_library(
         src/stream/stream.c
         src/stream/publish.c
         src/stream/snapshot.c
+        src/stream/parameters.c
 )
-target_include_directories(trytr_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(trytr_core PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(trytr_core PUBLIC trytr_math)
 trytr_target_defaults(trytr_core)
 
@@ -120,6 +124,7 @@ include(CTest)
 # Keep the reusable proof checker in its own module while building it alongside
 # the language so editor integrations can offer verified equation review.
 add_subdirectory(proof)
+include(cmake/Install.cmake)
 
 if(BUILD_TESTING)
     function(trytr_add_test target test_name source)
@@ -170,8 +175,9 @@ if(BUILD_TESTING)
     trytr_add_test(trytr_stream_tests trytr.stream tests/test_stream.c)
     trytr_add_test(trytr_stream_limit_tests trytr.stream.limits tests/test_stream_limits.c)
     trytr_add_test(trytr_stream_render_tests trytr.stream.render tests/test_stream_render.c)
+    trytr_add_test(trytr_stream_parameter_tests trytr.stream.parameters tests/test_stream_parameters.c)
     add_test(NAME trytr.stream.demo COMMAND trytr_stream_demo "${CMAKE_CURRENT_BINARY_DIR}/stream-demo")
-    set_tests_properties(trytr.stream.demo PROPERTIES PASS_REGULAR_EXPRESSION "revision 3:")
+    set_tests_properties(trytr.stream.demo PROPERTIES PASS_REGULAR_EXPRESSION "revision 4:")
 
     add_test(NAME trytr.cli.version COMMAND trytr --version)
     set_tests_properties(
@@ -262,6 +268,12 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        if(NOT TRYTR_ENABLE_SANITIZERS)
+            add_test(NAME trytr.install COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install.py" "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
+        add_test(NAME trytr.math_review COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_math_review.py" "$<TARGET_FILE:trytr-proof>")
         add_test(
             NAME trytr.mcp
             COMMAND

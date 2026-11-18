@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(trytr_proof VERSION 0.1.0 LANGUAGES C)
+include(GNUInstallDirs)
 
 include(CTest)
 
@@ -9,9 +10,16 @@ add_library(trytr_proof STATIC
     src/limit.c
     src/algebra.c
     src/algebra_poly.c
+    src/algebra_atoms.c
+    src/algebra_parse.c
+    src/algebra_fraction.c
 )
-target_include_directories(trytr_proof PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(trytr_proof PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_compile_features(trytr_proof PUBLIC c_std_23)
+if(TARGET trytr_build_options)
+    target_link_libraries(trytr_proof PUBLIC "$<BUILD_INTERFACE:trytr_build_options>")
+endif()
 target_compile_options(
     trytr_proof
     PRIVATE
@@ -37,4 +45,9 @@ if(BUILD_TESTING)
     target_link_libraries(test_algebra PRIVATE trytr_proof)
     target_compile_features(test_algebra PRIVATE c_std_23)
     add_test(NAME algebra_identity COMMAND test_algebra)
+
+    add_executable(test_rational tests/test_rational.c)
+    target_link_libraries(test_rational PRIVATE trytr_proof)
+    target_compile_features(test_rational PRIVATE c_std_23)
+    add_test(NAME algebra_rational COMMAND test_rational)
 endif()

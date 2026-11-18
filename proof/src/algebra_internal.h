@@ -14,6 +14,7 @@
 #define ALGEBRA_MAX_NESTING 32U
 #define ALGEBRA_MAX_NAME 31U
 #define ALGEBRA_MAX_LITERAL INT64_C(1000000000)
+#define ALGEBRA_MAX_OPERATIONS 1000000U
 
 typedef struct Rational {
     int64_t numerator;
@@ -34,6 +35,11 @@ typedef struct Polynomial {
     size_t count;
 } Polynomial;
 
+typedef struct AlgebraExpression {
+    Polynomial numerator;
+    Polynomial denominator;
+} AlgebraExpression;
+
 typedef struct Parser {
     const char *source;
     size_t length;
@@ -42,11 +48,27 @@ typedef struct Parser {
     size_t variable_count;
     TrytrAlgebraStatus error_status;
     char error[160];
+    bool rational_functions;
+    size_t operations;
+    size_t condition_count;
+    TrytrAlgebraCondition conditions[TRYTR_ALGEBRA_MAX_CONDITIONS];
 } Parser;
 
 void set_error(Parser *parser, TrytrAlgebraStatus status, const char *message);
 void skip_space(Parser *parser);
 bool consume(Parser *parser, const char *token);
+bool algebra_charge(Parser *parser);
+bool algebra_parse_unsigned(Parser *parser, uint64_t maximum, uint64_t *value);
+bool algebra_parse_number(Parser *parser, Rational *number);
+bool algebra_parse_variable(Parser *parser, Polynomial *result);
+bool algebra_parse_expression(Parser *parser, size_t depth, AlgebraExpression *result);
+AlgebraExpression algebra_expression_polynomial(Polynomial value);
+bool algebra_expression_binary(Parser *parser, const AlgebraExpression *left,
+    const AlgebraExpression *right, char operation, size_t offset, size_t length,
+    AlgebraExpression *result);
+bool algebra_expression_power(Parser *parser, const AlgebraExpression *base,
+    uint64_t exponent, AlgebraExpression *result);
+bool polynomial_equal(const Polynomial *left, const Polynomial *right);
 
 bool rational_normalize(Rational *value);
 bool rational_add(Rational left, Rational right, Rational *result);

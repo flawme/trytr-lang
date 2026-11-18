@@ -64,10 +64,19 @@ static int check_algebra_document(const char *path, char *source, size_t size)
         if (line[0] == '\0' || strcmp(line, "\\\\") == 0) {
             continue;
         }
-        const TrytrAlgebraResult result = trytr_algebra_check(line);
+        const TrytrAlgebraResult result = trytr_algebra_check_rational(line);
         ++checked;
         if (result.status == TRYTR_ALGEBRA_VERIFIED) {
             printf("%s:%zu: %s\n", path, line_number, result.message);
+        } else if (result.status == TRYTR_ALGEBRA_CONDITIONAL) {
+            fprintf(stderr, "%s:%zu: conditional: %s", path, line_number, result.message);
+            for (size_t i = 0u; i < result.condition_count; ++i) {
+                const TrytrAlgebraCondition condition = result.conditions[i];
+                fprintf(stderr, "%s(%.*s) != 0", i == 0u ? ": " : "; ",
+                        (int)condition.length, line + condition.offset);
+            }
+            fputc('\n', stderr);
+            exit_status = 2;
         } else if (result.status == TRYTR_ALGEBRA_NOT_IDENTITY) {
             fprintf(stderr, "%s:%zu: not verified: %s\n", path, line_number,
                     result.message);
@@ -93,7 +102,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: trytr-proof FILE\n"
                         "  .trproof: Peano equality proof\n"
                         "  .trlimit: polynomial limit certificate\n"
-                        "  .trmath: line-by-line algebra identity review\n");
+                        "  .trmath: exact polynomial/rational identity review\n");
         return 2;
     }
     FILE *input = fopen(argv[1], "rb");

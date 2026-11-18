@@ -55,6 +55,32 @@ advance it even when they contain only whitespace or comments. A stale
 frame. `finish` requires no pending frame and is idempotent. Finished streams
 reject further appends while leaving their last snapshot readable.
 
+## Atomic host controls
+
+`trytr_stream_set_parameters` changes selected declared values against an
+expected revision. Unspecified values persist, including across future append
+frames. Changing a value rebuilds all bound text, inline math, geometry, and
+formula plots before publishing one new revision:
+
+```c
+TrytrParameterOverride updates[] = {{.id = "rate", .value = 3}};
+bool changed = false;
+TrytrStatus status = trytr_stream_set_parameters(stream,
+    trytr_stream_revision(stream), updates, 1, &changed);
+```
+
+Updates are allowed in `IDLE` and `FINISHED`, so host controls can continue
+working after an AI response ends. They are rejected while an append frame is
+open. Unknown or duplicate IDs, invalid bounds/steps, and any resulting parse
+or execution failure leave the published values unchanged. A batch is atomic.
+An empty update or unchanged values succeed with `changed=false` and consume
+neither a revision nor parse budget. Stale revisions still conflict on no-ops.
+
+Old snapshot handles keep their previous values. A parameter-only revision has
+the same source byte count: overrides are data and are never spliced into the
+source text. Rebuilds share the same retention and cumulative parse budgets as
+append commits. Value changes do not reopen a finished stream.
+
 ## Ownership and bounds
 
 Every acquired or retained snapshot reference needs a matching
@@ -84,7 +110,7 @@ overflow rejects the entire feed without consuming bytes. Stream destruction
 also releases pending input and rejected candidate diagnostics.
 
 This API currently appends source and reparses complete candidates. It does not
-reuse unaffected IR, edit published elements, update parameter values, choose
+reuse unaffected IR, edit published elements, choose
 token/frame boundaries automatically, or define a network transport. Hosts may
 use their own framing and render each accepted revision with existing backends.
 
@@ -95,12 +121,13 @@ cmake --build build/debug
 ./build/debug/trytr_stream_demo /tmp/trytr-stream
 ```
 
-The small [C example](../examples/stream_demo.c) produces four offline HTML files:
+The small [C example](../examples/stream_demo.c) produces five offline HTML files:
 
 1. `trytr-stream-1.html`: a heading and declared frequency parameter.
 2. `trytr-stream-2.html`: the heading plus native inline math.
 3. `trytr-stream-pending.html`: the same revision 2 while a plot is incomplete.
 4. `trytr-stream-3.html`: the completed formula plot after publication.
+5. `trytr-stream-4.html`: frequency changed atomically from 2 to 3 after finish.
 
 The output uses the core streaming API and native HTML/MathML backend. Only the
 plot canvas uses vector markup. There are no scripts or network dependencies.

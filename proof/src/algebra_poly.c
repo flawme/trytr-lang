@@ -12,6 +12,16 @@ void set_error(Parser *parser, TrytrAlgebraStatus status, const char *message)
     }
 }
 
+bool algebra_charge(Parser *parser)
+{
+    if (parser->operations >= ALGEBRA_MAX_OPERATIONS) {
+        set_error(parser, TRYTR_ALGEBRA_UNSUPPORTED, "algebra exceeds its operation budget");
+        return false;
+    }
+    ++parser->operations;
+    return true;
+}
+
 void skip_space(Parser *parser)
 {
     while (parser->cursor < parser->length &&
@@ -178,6 +188,7 @@ bool polynomial_add_term(Parser *parser, Polynomial *polynomial,
         return true;
     }
     for (size_t index = 0U; index < polynomial->count; ++index) {
+        if (!algebra_charge(parser)) return false;
         if (monomial_equal(&polynomial->terms[index].monomial, monomial)) {
             Rational sum;
             if (!rational_add(polynomial->terms[index].coefficient,
@@ -244,6 +255,7 @@ bool polynomial_multiply(Parser *parser, const Polynomial *left,
     *result = polynomial_zero();
     for (size_t left_index = 0U; left_index < left->count; ++left_index) {
         for (size_t right_index = 0U; right_index < right->count; ++right_index) {
+            if (!algebra_charge(parser)) return false;
             Monomial monomial = {0};
             unsigned total_degree = 0U;
             for (size_t variable = 0U; variable < ALGEBRA_MAX_VARIABLES; ++variable) {
@@ -309,6 +321,29 @@ bool polynomial_power(Parser *parser, const Polynomial *base,
             return false;
         }
         *result = product;
+    }
+    return true;
+}
+
+bool polynomial_equal(const Polynomial *left, const Polynomial *right)
+{
+    if (left->count != right->count) {
+        return false;
+    }
+    for (size_t left_index = 0U; left_index < left->count; ++left_index) {
+        bool found = false;
+        for (size_t right_index = 0U; right_index < right->count; ++right_index) {
+            if (monomial_equal(&left->terms[left_index].monomial,
+                               &right->terms[right_index].monomial) &&
+                rational_equal(left->terms[left_index].coefficient,
+                               right->terms[right_index].coefficient)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
     }
     return true;
 }

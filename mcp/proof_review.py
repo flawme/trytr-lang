@@ -1,4 +1,4 @@
-"""MCP support for the standalone Trytr polynomial identity checker."""
+"""MCP support for the standalone Trytr exact algebra identity checker."""
 
 from __future__ import annotations
 
@@ -18,9 +18,10 @@ REVIEW_TOOL = {
     "name": "review_trytr_math",
     "title": "Review Trytr algebra steps",
     "description": (
-        "Check each equality in a LaTeX-like derivation as a polynomial identity "
-        "over exact rational coefficients. Returns verified, not an identity, or "
-        "unable to check per equation. This does not verify prose, assumptions, "
+        "Check each equality in a LaTeX-like derivation using exact polynomial and "
+        "rational arithmetic. Returns verified, conditional with explicit nonzero "
+        "divisor requirements, not an identity, or unable to check per equation. "
+        "Conditional results are not unconditional proofs. This does not verify prose, assumptions, "
         "inequalities, limits, or a complete theorem; unsupported claims remain "
         "unchecked and require human or stronger proof review. Use one equation per "
         "line, optionally inside a LaTeX align environment."
@@ -202,6 +203,7 @@ def review_math(source: Any, executable: str | None) -> dict[str, Any]:
             for prefix, candidate in (
                 ("not verified:", "not_an_identity"),
                 ("unable to check:", "unable_to_check"),
+                ("conditional:", "conditional"),
             ):
                 if message.startswith(prefix):
                     status = candidate
@@ -215,15 +217,15 @@ def review_math(source: Any, executable: str | None) -> dict[str, Any]:
     statuses = {result["status"] for result in results}
     if statuses == {"verified"}:
         overall = "verified"
-        message = f"Verified {len(results)} polynomial equation(s)."
+        message = f"Verified {len(results)} algebra equation(s)."
         ok = True
     elif "not_an_identity" in statuses:
         overall = "needs_review"
-        message = "At least one equation is not a polynomial identity."
+        message = "At least one equation is not an algebraic identity."
         ok = False
     else:
         overall = "partially_checked"
-        message = "Some equation rows could not be checked by the supported polynomial checker."
+        message = "Some equations require divisor conditions or could not be checked."
         ok = False
     result = {"ok": ok, "status": overall, "message": message, "results": results}
     content_text = "\n".join(

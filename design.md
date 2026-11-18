@@ -1768,8 +1768,14 @@ or rejected frames preserve the previous revision and can be completed or
 cancelled. Snapshot retention and cumulative parsing have explicit budgets.
 See `docs/streaming.md` and `examples/stream_demo.c`.
 
+Atomic parameter transactions merge selected overrides into the current values,
+validate and compile the resulting document, and publish one revision or retain
+the previous values on failure. They persist through later appends and may run
+after `finish`, allowing controls on completed AI responses. Pending append
+frames reject parameter transactions. Unchanged values are no-ops.
+
 This implementation reparses the full assembled source. Editing existing
-elements, changing parameter values transactionally, dependency reuse,
+elements, dependency reuse,
 incremental layout, and a wire framing schema remain future work.
 
 ## Stage 7 — Interactivity and animation

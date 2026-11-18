@@ -42,5 +42,9 @@ TrytrStatus trytr_stream_error(TrytrStream *stream, TrytrStatus status,
                                const char *code, const char *message);
 TrytrStatus trytr_stream_parse_candidate(const char *source, size_t length,
                                         TrytrDocument **out_document);
+size_t trytr_stream_current_parameters(const TrytrStream *stream,
+                                       TrytrParameterOverride *overrides);
+TrytrStatus trytr_stream_commit_source(TrytrStream *stream, const char *source,
+    size_t length, const TrytrParameterOverride *overrides, size_t count, bool *out_changed);
 
 #endif

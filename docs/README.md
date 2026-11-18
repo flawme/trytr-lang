@@ -351,7 +351,8 @@ layout rules, the C API, ownership, and current limits.
 For host integrations receiving AI output in chunks, the C
 [streaming append API](streaming.md) buffers incomplete input and publishes
 validated revisions atomically. The previous snapshot remains readable after
-a rejected frame. Build and run `trytr_stream_demo` for an offline example.
+a rejected frame. Atomic parameter changes rebuild bound content and continue
+working after streaming finishes. Build and run `trytr_stream_demo` for an offline example.
 
 ```sh
 ./build/debug/trytr --render-text docs/examples/text-graph.trytr

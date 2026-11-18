@@ -34,6 +34,12 @@ TrytrStatus trytr_stream_feed(TrytrStream *stream, const char *bytes, size_t len
  * Revision numbers reflect accepted source, including comment-only frames. */
 TrytrStatus trytr_stream_commit_append(TrytrStream *stream, bool *out_changed);
 TrytrStatus trytr_stream_cancel_append(TrytrStream *stream);
+/* Atomically change selected declared values, preserving unspecified values.
+ * Allowed while IDLE or FINISHED, never with a pending append frame. A no-op
+ * does not advance the revision; stale revisions conflict. Values persist in
+ * subsequent append frames. Failed changes preserve the published snapshot. */
+TrytrStatus trytr_stream_set_parameters(TrytrStream *stream, uint64_t expected_revision,
+    const TrytrParameterOverride *overrides, size_t count, bool *out_changed);
 /* Finish only from IDLE; repeated finish calls are allowed. */
 TrytrStatus trytr_stream_finish(TrytrStream *stream);
 

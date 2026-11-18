@@ -1,0 +1,7 @@
+# Conditional identities: each requires the reported divisors to be nonzero.
+(x^2-1)/(x-1)=x+1
+1/x+1/y=(x+y)/(xy)
+\frac{\frac{x}{y}}{\frac{z}{y}}=x/z
+x^{-2}=1/x^2
+# Unconditional identity for comparison.
+(x+y)^2=x^2+2xy+y^2
