@@ -12,8 +12,8 @@ int main(void)
         return 1;
     }
 
-    if (strcmp(version, "0.1.0") != 0) {
-        fprintf(stderr, "expected version 0.1.0, got %s\n", version);
+    if (strcmp(version, "0.1.0-alpha.1") != 0) {
+        fprintf(stderr, "expected version 0.1.0-alpha.1, got %s\n", version);
         return 1;
     }
 

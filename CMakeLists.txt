@@ -9,6 +9,14 @@ project(
 
 option(TRYTR_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 include(GNUInstallDirs)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/trytr/trytr.h" trytr_version_line
+    REGEX "^#define TRYTR_VERSION ")
+string(REGEX MATCH "\"([^\"]+)\"" trytr_version_match "${trytr_version_line}")
+set(TRYTR_FULL_VERSION "${CMAKE_MATCH_1}")
+string(REPLACE "." "\\." trytr_numeric_pattern "${PROJECT_VERSION}")
+if(NOT TRYTR_FULL_VERSION MATCHES "^${trytr_numeric_pattern}(-[0-9A-Za-z.-]+)?$")
+    message(FATAL_ERROR "TRYTR_VERSION must match the numeric project version")
+endif()
 
 add_library(trytr_build_options INTERFACE)
 target_compile_features(trytr_build_options INTERFACE c_std_23)
@@ -183,7 +191,7 @@ if(BUILD_TESTING)
     add_test(NAME trytr.cli.version COMMAND trytr --version)
     set_tests_properties(
         trytr.cli.version
-        PROPERTIES PASS_REGULAR_EXPRESSION "trytr 0\\.1\\.0"
+        PROPERTIES PASS_REGULAR_EXPRESSION "trytr 0\\.1\\.0-alpha\\.1"
     )
 
     add_test(
@@ -269,6 +277,10 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME trytr.release_metadata COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release_metadata.py" "$<TARGET_FILE:trytr>" "${CMAKE_CURRENT_BINARY_DIR}")
+        add_test(NAME trytr.web_demo COMMAND "${CMAKE_COMMAND}" -E env "TRYTR_EXECUTABLE=$<TARGET_FILE:trytr>"
+            "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/proof/web" -p test_server.py -v)
         include(cmake/PdfProcessTests.cmake)
         if(NOT TRYTR_ENABLE_SANITIZERS)
             add_test(NAME trytr.install COMMAND "${Python3_EXECUTABLE}"

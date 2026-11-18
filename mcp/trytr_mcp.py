@@ -52,7 +52,7 @@ SERVER_STARTED_AT = time.monotonic()
 MAX_REQUEST_LOG_BYTES = 256 * 1024
 MAX_LOG_READ_ENTRIES = 100
 
-SERVER_INFO = {"name": "trytr-renderer", "version": "0.1.0"}
+SERVER_INFO = {"name": "trytr-renderer", "version": "0.1.0-alpha.1"}
 SERVER_INSTRUCTIONS = (
     "Render vector documents written in Trytr. @math expressions are typeset as "
     "native MathML in the embedded preview. Prefer render_trytr for a smooth, "
@@ -64,7 +64,7 @@ SERVER_INSTRUCTIONS = (
     "and formula plots. Declared @param values are returned as preview controls; "
     "pass integer overrides in the parameters object to re-render the document. "
     "Both modes validate and render locally after receiving the complete source. "
-    "review_trytr_math checks supported polynomial equalities; it does not prove "
+    "review_trytr_math checks polynomial and conditional rational identities; it does not prove "
     "prose, assumptions, or unsupported mathematics. check_trytr_certificate runs "
     "the small built-in checker for supported formal certificate formats; it is "
     "not a general theorem prover. Use health_check and read_server_log to "

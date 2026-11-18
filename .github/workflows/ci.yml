@@ -39,3 +39,26 @@ jobs:
       - name: Package release binaries
         if: matrix.preset == 'release'
         run: cpack --config build/release/CPackConfig.cmake -B build/packages
+      - name: Check source archive on the clean runner
+        if: matrix.preset == 'release' && matrix.compiler == 'gcc'
+        run: |
+          release_version=$(build/release/trytr --version)
+          release_version=${release_version#trytr }
+          git archive --format=tar.gz --prefix="trytr-${release_version}/" --output="build/packages/trytr-${release_version}-source.tar.gz" HEAD
+          mkdir -p build/archive-source
+          tar -xzf "build/packages/trytr-${release_version}-source.tar.gz" -C build/archive-source
+          cmake -S "build/archive-source/trytr-${release_version}" -B build/archive-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DTRYTR_CHROMIUM_EXECUTABLE=/opt/google/chrome/chrome
+          cmake --build build/archive-build --parallel 2
+          ctest --test-dir build/archive-build --output-on-failure
+          cd build/packages
+          sha256sum *.tar.gz > SHA256SUMS
+      - name: Retain verified release assets
+        if: matrix.preset == 'release' && matrix.compiler == 'gcc'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: trytr-release-assets
+          path: |
+            build/packages/*.tar.gz
+            build/packages/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

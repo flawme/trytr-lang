@@ -1,34 +1,27 @@
-# First public release
+# Releasing Trytr
 
-Target `v0.1.0-alpha.1`: an experimental Linux C library and CLI for native
-chat documents. The alpha can include inline/display math, formula plots,
-bounded integer controls, atomic stream revisions, and exact algebra review.
-Full LaTeX compatibility, a general proof assistant, incremental dependency
-reuse, and a stable ABI are outside this first release's promise.
+The first release is `v0.1.0-alpha.1`, an experimental Linux C library and CLI
+for native chat documents. Its scope, requirements, and gaps are described in
+the [release notes](releases/v0.1.0-alpha.1.md). The owner selected Apache 2.0
+and authorized public alpha publication after review.
 
-## Release gates
+## Candidate checks
 
-- [x] Root quick start with a complete `.trytr` example and honest limitations.
-- [x] Adversarial parser, math, streaming, checker, and rendering tests.
-- [x] CMake installation, static libraries, public headers, and binary archive
-  generation; a fresh consumer checks SDK relocation in release builds.
-- [x] A Linux GCC/Clang debug/release CI workflow is defined.
-- [ ] Observe that CI workflow pass for the exact proposed release commit.
-- [ ] Owner chooses a license and adds the license text and any required notices.
-- [ ] Review the tracked tree and history for credentials and private material.
-  A credential was exposed in earlier local diagnostics; confirm its rotation
-  before publishing related history or logs.
-- [ ] Try the source archive and binary package on a separate clean Linux host;
-  check native MathML in the browser hosts advertised by the release.
-- [ ] Write release notes listing the supported platform, compiler requirements,
-  API changes, known rendering gaps, and checker scope.
-- [ ] Make the repository public and publish the tagged alpha after those gates.
+1. Keep the public version header, CMake numeric version, MCP metadata, README,
+   and release notes consistent. The metadata test checks the alpha suffix.
+2. Include LICENSE and NOTICE in the source and installed SDK.
+3. Review code and Git history; add regression tests for release findings.
+   Record coverage in the [review](reviews/v0.1.0-alpha.1.md).
+4. Run the GCC/Clang debug/sanitized and release CI matrix on the exact candidate.
+5. In CI, install and relocate the SDK, build a fresh consumer, then extract,
+   rebuild, and test the source archive. Retain the GCC release archives and
+   `SHA256SUMS` only after those checks pass.
+6. Download those retained artifacts, verify their checksums and contents,
+   and smoke-test the packaged CLI. Use the CI-built assets for publication.
+7. Tag the tested commit, publish the GitHub prerelease and its assets, and
+   verify that public metadata, tag, version, and checksums agree.
 
-The repository's visibility and release tag are owner decisions. This document
-does not publish either. License selection and actual external validation are
-still required even when local tests pass.
-
-## Candidate build
+## Local validation
 
 ```sh
 cmake --preset debug
@@ -41,21 +34,18 @@ cmake --install build/release --prefix /tmp/trytr-candidate
 cpack --config build/release/CPackConfig.cmake -B build/packages
 ```
 
-Use release builds for distributed binaries. Sanitized development archives
-are not production packages. The first package targets its build OS and CPU;
-it is not a portable binary for every Linux distribution. PDF export also
-depends on an external Chromium installation; native HTML does not.
+Distribute release builds. The Linux archive targets its build OS and CPU;
+other platforms must build from source and are not qualified by this alpha.
+PDF export depends on an external browser. The Ubuntu CI runner selects the
+installed stable Chrome binary covered by its AppArmor profile, as described in
+Chromium's [sandbox notes](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+Browser export has a 30-second deadline and 4 KiB diagnostic cap.
 
 `find_package(Trytr CONFIG REQUIRED)` imports `trytr::core`, `trytr::math`, and
-`trytr::proof`. Install paths follow CMake's GNUInstallDirs settings. The package
-configuration uses CMake's [relocatable package helpers](https://cmake.org/cmake/help/latest/module/CMakePackageConfigHelpers.html).
-CI follows GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax).
-The Ubuntu CI runner uses its installed stable Chrome binary for PDF checks,
-matching the distribution's AppArmor profile. See Chromium's
-[sandbox compatibility notes](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
-Failed exports retain at most 4 KiB of browser diagnostics on standard error.
+`trytr::proof`. CMake uses its [relocatable package helpers](https://cmake.org/cmake/help/latest/module/CMakePackageConfigHelpers.html).
+The numeric SDK package version remains `0.1.0`; runtime and archive names
+include `alpha.1`. No stable ABI is promised during the alpha.
 
-The alpha deliberately keeps proof review separate from document rendering.
-Publishing a document does not certify its mathematical claims. Rational
-identity review lists divisor obligations; verifying those assumptions,
-transcendental identities, inequalities, and arbitrary prose needs further work.
+Rendering a mathematical claim does not certify it. Conditional algebra
+results list unresolved divisor obligations. General proof checking and broad
+manual cross-browser typography qualification remain future work.

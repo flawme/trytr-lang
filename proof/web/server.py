@@ -39,6 +39,7 @@ def trytr_executable() -> str:
         return override
     candidates = (
         ROOT / "build/debug/trytr",
+        ROOT / "build/release/trytr",
         ROOT / "build/trytr",
         ROOT / "build/Release/trytr",
     )

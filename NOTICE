@@ -1,0 +1,12 @@
+Trytr
+Copyright 2026 flawme and Trytr contributors
+
+Original Trytr source code, documentation, and examples are licensed under
+the Apache License, Version 2.0. See LICENSE for the license terms.
+
+Trytr is an independent project and is not affiliated with or endorsed by
+the Apache Software Foundation.
+
+No third-party library source, browser binaries, fonts, or TeX distribution
+is bundled in this release. External build tools, system libraries, optional
+browsers, and connected services retain their own licenses.

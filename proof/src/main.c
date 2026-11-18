@@ -43,8 +43,8 @@ static int check_algebra_document(const char *path, char *source, size_t size)
             line[--length] = '\0';
         }
         if (length == 0U || line[0] == '#' || line[0] == '%' ||
-            strncmp(line, "\\begin{align", 12U) == 0 ||
-            strncmp(line, "\\end{align", 10U) == 0 ||
+            strcmp(line, "\\begin{align}") == 0 || strcmp(line, "\\begin{align*}") == 0 ||
+            strcmp(line, "\\end{align}") == 0 || strcmp(line, "\\end{align*}") == 0 ||
             strcmp(line, "$$") == 0 || strcmp(line, "\\[") == 0 ||
             strcmp(line, "\\]") == 0) {
             continue;

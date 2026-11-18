@@ -18,6 +18,10 @@ with tempfile.TemporaryDirectory(prefix="trytr-install-") as directory:
     run("cmake", "--install", sys.argv[1], "--prefix", str(original))
     shutil.move(original, relocated)
     run(str(relocated / "bin/trytr"), "--version")
+    for filename in ("LICENSE", "NOTICE"):
+        installed = list(relocated.rglob(filename))
+        assert len(installed) == 1, (filename, installed)
+        assert installed[0].read_bytes() == (Path(__file__).resolve().parents[1] / filename).read_bytes()
     source = root / "consumer"
     source.mkdir()
     (source / "CMakeLists.txt").write_text("""

@@ -31,6 +31,18 @@ class RationalReviewTests(unittest.TestCase):
         self.assertEqual("partially_checked", payload["status"])
         self.assertEqual(["conditional", "conditional"], [row["status"] for row in payload["results"]])
 
+    def test_environment_prefix_cannot_hide_an_unchecked_claim(self):
+        for wrapper in (r"\begin{align*} x=x+1", r"\end{align*} x=x+1", r"\begin{alignment} x=x+1"):
+            with self.subTest(wrapper=wrapper):
+                payload = review_math(wrapper + "\nx=x\n", CHECKER)["structuredContent"]
+                self.assertFalse(payload["ok"])
+                self.assertEqual(["unable_to_check", "verified"], [row["status"] for row in payload["results"]])
+
+    def test_exact_align_wrappers_remain_accepted(self):
+        payload = review_math("\\begin{align*}\nx &= x\\\\\n\\end{align*}", CHECKER)["structuredContent"]
+        self.assertTrue(payload["ok"])
+        self.assertEqual(["verified"], [row["status"] for row in payload["results"]])
+
     def test_cli_returns_two_for_conditions_and_one_for_a_false_identity(self):
         for source, expected in (("x/x=1", 2), ("x/x=2", 1), ("x=x", 0), ("0/0=0", 2)):
             with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
