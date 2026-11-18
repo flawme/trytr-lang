@@ -106,7 +106,7 @@ trytr_target_defaults(trytr_stream_demo)
 
 # PDF export reuses Trytr's SVG output and a locally installed headless
 # Chromium. Keep this optional so the language core remains dependency-free.
-target_sources(trytr PRIVATE src/pdf_render.c)
+target_sources(trytr PRIVATE src/pdf_render.c src/pdf_process.c)
 if(UNIX)
     find_program(
         TRYTR_CHROMIUM_EXECUTABLE

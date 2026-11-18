@@ -2,7 +2,6 @@
 
 #include "pdf_render.h"
 
-#include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,10 +10,8 @@
 
 #if defined(TRYTR_CHROMIUM_EXECUTABLE) && defined(__unix__)
 #include <dirent.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #define TRYTR_PDF_OUTPUT_LIMIT (128u * 1024u * 1024u)
@@ -100,58 +97,6 @@ static bool write_html(const char *path, const char *svg, size_t svg_length,
     return ok;
 }
 
-static bool run_chromium(const char *html_path, const char *pdf_path,
-                         const char *profile_path)
-{
-    char pdf_argument[4096];
-    char profile_argument[4096];
-    char url[4096];
-    int pdf_length = snprintf(pdf_argument, sizeof(pdf_argument),
-                              "--print-to-pdf=%s", pdf_path);
-    int profile_length = snprintf(profile_argument, sizeof(profile_argument),
-                                  "--user-data-dir=%s", profile_path);
-    int url_length = snprintf(url, sizeof(url), "file://%s", html_path);
-    if (pdf_length < 0 || pdf_length >= (int)sizeof(pdf_argument) ||
-        profile_length < 0 || profile_length >= (int)sizeof(profile_argument) ||
-        url_length < 0 || url_length >= (int)sizeof(url)) {
-        return false;
-    }
-
-    char *arguments[16];
-    size_t count = 0u;
-    arguments[count++] = (char *)TRYTR_CHROMIUM_EXECUTABLE;
-    arguments[count++] = (char *)"--headless";
-    arguments[count++] = (char *)"--disable-gpu";
-    arguments[count++] = (char *)"--disable-dev-shm-usage";
-    arguments[count++] = (char *)"--disable-background-networking";
-    arguments[count++] = (char *)"--disable-extensions";
-    arguments[count++] = (char *)"--no-first-run";
-    arguments[count++] = (char *)"--no-pdf-header-footer";
-    if (geteuid() == 0) arguments[count++] = (char *)"--no-sandbox";
-    arguments[count++] = profile_argument;
-    arguments[count++] = pdf_argument;
-    arguments[count++] = url;
-    arguments[count] = NULL;
-
-    pid_t child = fork();
-    if (child < 0) return false;
-    if (child == 0) {
-        int null_descriptor = open("/dev/null", O_WRONLY);
-        if (null_descriptor >= 0) {
-            (void)dup2(null_descriptor, STDOUT_FILENO);
-            (void)dup2(null_descriptor, STDERR_FILENO);
-            (void)close(null_descriptor);
-        }
-        execv(TRYTR_CHROMIUM_EXECUTABLE, arguments);
-        _exit(127);
-    }
-    int status = 0;
-    while (waitpid(child, &status, 0) < 0) {
-        if (errno != EINTR) return false;
-    }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
-
 static bool read_pdf(const char *path, char **out_pdf, size_t *out_length)
 {
     FILE *file = fopen(path, "rb");
@@ -230,7 +175,7 @@ TrytrStatus trytr_pdf_render_svg(const char *svg, size_t svg_length,
                     pdf_length >= 0 && pdf_length < (int)sizeof(pdf_path) &&
                     profile_length >= 0 && profile_length < (int)sizeof(profile_path);
     bool rendered = paths_ok && write_html(html_path, svg, svg_length, width, height) &&
-                    run_chromium(html_path, pdf_path, profile_path) &&
+                    trytr_pdf_run_chromium(html_path, pdf_path, profile_path) &&
                     read_pdf(pdf_path, out_pdf, out_length);
     remove_tree(directory);
     return rendered ? TRYTR_STATUS_OK : TRYTR_STATUS_EXECUTION_FAILED;

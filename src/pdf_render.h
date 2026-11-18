@@ -7,6 +7,8 @@
 #include <stddef.h>
 
 bool trytr_pdf_export_available(void);
+/* Internal subprocess helper; emits bounded browser diagnostics only on failure. */
+bool trytr_pdf_run_chromium(const char *html_path, const char *pdf_path, const char *profile_path);
 TrytrStatus trytr_pdf_render_svg(
     const char *svg,
     size_t svg_length,
