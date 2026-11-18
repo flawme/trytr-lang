@@ -27,7 +27,11 @@ jobs:
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ninja-build gcc clang python3
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        # Ubuntu's AppArmor policy covers the installed stable Chrome binary.
+        # Use that installation so PDF tests can run with its sandbox enabled.
+        run: |
+          test -x /opt/google/chrome/chrome
+          cmake --preset ${{ matrix.preset }} -DTRYTR_CHROMIUM_EXECUTABLE=/opt/google/chrome/chrome
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel 2
       - name: Test

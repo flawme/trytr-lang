@@ -50,6 +50,10 @@ depends on an external Chromium installation; native HTML does not.
 `trytr::proof`. Install paths follow CMake's GNUInstallDirs settings. The package
 configuration uses CMake's [relocatable package helpers](https://cmake.org/cmake/help/latest/module/CMakePackageConfigHelpers.html).
 CI follows GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax).
+The Ubuntu CI runner uses its installed stable Chrome binary for PDF checks,
+matching the distribution's AppArmor profile. See Chromium's
+[sandbox compatibility notes](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+Failed exports retain at most 4 KiB of browser diagnostics on standard error.
 
 The alpha deliberately keeps proof review separate from document rendering.
 Publishing a document does not certify its mathematical claims. Rational

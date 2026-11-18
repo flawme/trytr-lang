@@ -113,6 +113,7 @@ if(UNIX)
         NAMES chromium chromium-browser google-chrome-stable google-chrome
     )
     if(TRYTR_CHROMIUM_EXECUTABLE)
+        message(STATUS "Trytr PDF browser: ${TRYTR_CHROMIUM_EXECUTABLE}")
         target_compile_definitions(
             trytr PRIVATE TRYTR_CHROMIUM_EXECUTABLE="${TRYTR_CHROMIUM_EXECUTABLE}"
         )
@@ -268,6 +269,7 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        include(cmake/PdfProcessTests.cmake)
         if(NOT TRYTR_ENABLE_SANITIZERS)
             add_test(NAME trytr.install COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install.py" "${CMAKE_CURRENT_BINARY_DIR}")
