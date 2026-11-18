@@ -5,6 +5,7 @@
 #include "plot_formula.h"
 #include "polygon.h"
 #include "math/notation_internal.h"
+#include "math/inline_internal.h"
 #include "trytr/document.h"
 #include "trytr/math/expression.h"
 #include <inttypes.h>
@@ -19,6 +20,7 @@ typedef struct TrytrParser {
     size_t node_count;
     size_t expression_operations;
     size_t group_depth;
+    size_t inline_run_count;
     const TrytrParameterOverride *overrides;
     size_t override_count;
     bool parameter_bounds_expression;
@@ -31,6 +33,9 @@ static void parse_element(TrytrParser *parser, TrytrNode *parent);
 static void parse_element_list(TrytrParser *parser, TrytrNode *parent);
 static void error(TrytrParser *parser, const char *code,
                   TrytrSourceLocation location, const char *message);
+static TrytrSourceLocation raw_block_error_location(
+    const TrytrParser *parser, size_t raw_source_offset,
+    TrytrSourceLocation raw_location, size_t error_offset);
 
 static bool build_math_tree(TrytrParser *parser, TrytrNode *node)
 {
@@ -715,6 +720,11 @@ static void parse_text_options(TrytrParser *parser, TrytrNode *node)
                 skip_positional(parser);
                 return;
             }
+        } else if (identifier_is(name, "inline-math") &&
+                   (identifier_is(parser->current, "true") ||
+                    identifier_is(parser->current, "false"))) {
+            value = identifier_is(parser->current, "true") ? 1 : 0;
+            advance(parser);
         } else if (identifier_is(name, "align")) {
             if (identifier_is(parser->current, "left")) {
                 value = TRYTR_TEXT_ALIGN_LEFT;
@@ -1050,6 +1060,9 @@ static void parse_text_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
         return;
     }
     const size_t diagnostics_before = parser->output->diagnostics.count;
+    const size_t raw_source_offset = parser->lexer.position;
+    const TrytrSourceLocation raw_location = {.offset = raw_source_offset,
+        .line = parser->lexer.line, .column = parser->lexer.column};
     if (!trytr_lexer_raw_block(&parser->lexer, &parser->output->arena, &node->text, &node->text_length)) {
         if (parser->output->diagnostics.count == diagnostics_before) {
             parser->output->out_of_memory = true;
@@ -1059,6 +1072,25 @@ static void parse_text_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
         return;
     }
     parser->current = trytr_lexer_next(&parser->lexer);
+    bool inline_math = false;
+    for (const TrytrProperty *property = node->properties; property != NULL; property = property->next) {
+        if (node->kind != TRYTR_NODE_MATH && strcmp(property->name, "inline-math") == 0)
+            inline_math = property->integer_value == 1;
+    }
+    const size_t run_limit = TRYTR_DEFAULT_INLINE_RUN_LIMIT - parser->inline_run_count;
+    size_t run_count = 0u, error_offset = 0u;
+    const TrytrInlineRun *checked_runs = NULL;
+    if (inline_math) {
+        const TrytrInlineStatus status = trytr_inline_parse(NULL, node->text, node->text_length,
+            run_limit, &checked_runs, &run_count, &error_offset);
+        if (status != TRYTR_INLINE_OK) {
+            error(parser, status == TRYTR_INLINE_LIMIT_EXCEEDED ? "TRYTR-E-LIMIT" : "TRYTR-E-INLINE-MATH",
+                raw_block_error_location(parser, raw_source_offset, raw_location, error_offset),
+                status == TRYTR_INLINE_LIMIT_EXCEEDED ? "document exceeds the inline run limit" :
+                    "inline math requires nonempty, non-nested \\( ... \\) delimiters on one source line");
+            return;
+        }
+    }
     char *expanded = NULL;
     size_t expanded_length = 0u;
     if (!expand_parameter_references(parser, node->text, node->text_length,
@@ -1068,7 +1100,18 @@ static void parse_text_element(TrytrParser *parser, TrytrNode *node, TrytrNode *
     }
     node->text = expanded;
     node->text_length = expanded_length;
-    if (!build_math_tree(parser, node)) return;
+    if (inline_math) {
+        const TrytrInlineStatus status = trytr_inline_parse(&parser->output->arena,
+            node->text, node->text_length, run_limit, &node->inline_runs, &run_count, &error_offset);
+        if (status != TRYTR_INLINE_OK) {
+            if (status == TRYTR_INLINE_NO_MEMORY) parser->output->out_of_memory = true;
+            error(parser, status == TRYTR_INLINE_NO_MEMORY ? "TRYTR-E-MEMORY" : "TRYTR-E-LIMIT",
+                node->location, "unable to build bounded inline notation runs");
+            parser->aborted = true;
+            return;
+        }
+        parser->inline_run_count += run_count;
+    } else if (!build_math_tree(parser, node)) return;
     trytr_ast_add_child(root, node);
 }
 
@@ -1753,7 +1796,11 @@ static void parse_element_list(TrytrParser *parser, TrytrNode *parent)
         }
         parse_element(parser, parent);
     }
-    if (parser->current.kind == TRYTR_TOKEN_RBRACE) advance(parser);
+    if (parser->current.kind == TRYTR_TOKEN_RBRACE) {
+        if (parent->kind == TRYTR_NODE_DOCUMENT)
+            parser->output->document_body_end = parser->current.location.offset;
+        advance(parser);
+    }
     else if (!parser->aborted) {
         error(parser, "TRYTR-E-SYNTAX", parser->current.location,
               parent->kind == TRYTR_NODE_DOCUMENT

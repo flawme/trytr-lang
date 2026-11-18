@@ -22,6 +22,7 @@ typedef struct TrytrParserOutput {
     TrytrParameterEntry *parameters;
     TrytrParameterEntry *parameters_tail;
     size_t parameter_count;
+    size_t document_body_end;
     bool initialized;
     bool out_of_memory;
 } TrytrParserOutput;

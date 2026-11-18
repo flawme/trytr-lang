@@ -53,7 +53,8 @@ document's content with padding:
 ## Text and shapes
 
 `@heading`, `@text`, and `@math` take a block of text in braces. The SVG and
-text renderers show the entered math source. The MCP Apps preview also typesets
+text renderers show the entered math source. Native HTML output typesets each
+display equation in document order with MathML. The MCP Apps preview also typesets
 `@math` elements natively with MathML. In math blocks, `_` and `^` followed by
 one character or a balanced brace group render as a subscript or superscript in
 that MathML output:
@@ -64,6 +65,18 @@ that MathML output:
 @math #radical {\sqrt{a^2 + b_i}}
 @math #ratio {\frac{p}{q}}
 ```
+
+For a formula inside a sentence, enable inline math on that paragraph or heading:
+
+```trytr
+@text(inline-math: true) {Let \(x^2\) be positive.}
+@text(inline-math: true) {Use the ratio \(\frac{1}{x + 1}\) here.}
+```
+
+Native HTML typesets these runs with MathML in the same text line. Existing
+text stays literal unless the option is enabled, and `$5` remains ordinary
+text. See [inline math](inline-math.md) for delimiters, escapes, wrapping,
+parameter references, API ownership, and fallback behavior.
 
 Use a backslash to show `_`, `^`, or braces literally. `@math` does not
 evaluate equations or parse general TeX commands. The native MathML renderer
@@ -309,8 +322,8 @@ ctest --test-dir build/debug --output-on-failure
 
 The CLI prints validation errors to standard error and exits nonzero for an
 invalid document. The SVG command writes the rendered image to standard output.
-Use `--render-text` to write text blocks followed by a compact text drawing
-of the vector geometry. It uses connected Unicode strokes for plot and path
+Use `--render-text` to write text blocks interleaved with compact drawings of
+consecutive vector elements in reading order. It uses connected Unicode strokes for plot and path
 curves, with antialiased line rasterization and text outlines for other shapes.
 This output contains no SVG or image data; it is meant to be copied directly
 into a chat message or terminal. The text backend keeps shape outlines and
@@ -321,6 +334,24 @@ arbitrary zoom. Use SVG for continuous, scalable geometry.
 Use `--render-mathml` to write a MathML Core document for each `@math`
 element. Browsers typeset formulas using native math layout; this backend does
 not require a TeX installation.
+
+Use `--render-html` for an offline document with native paragraphs, MathML
+equations in reading order, and embedded vector canvases:
+
+```sh
+./build/debug/trytr --render-html docs/examples/flow-math.trytr > /tmp/trytr-flow.html
+./build/debug/trytr --set rate=4 --render-html docs/examples/flow-math.trytr > /tmp/trytr-flow-4.html
+```
+
+The shared layout module handles line breaking and canvas runs; the browser
+measures native math height and moves following blocks accordingly. This output
+requires no JavaScript or TeX installation. See [document flow](layout.md) for
+layout rules, the C API, ownership, and current limits.
+
+For host integrations receiving AI output in chunks, the C
+[streaming append API](streaming.md) buffers incomplete input and publishes
+validated revisions atomically. The previous snapshot remains readable after
+a rejected frame. Build and run `trytr_stream_demo` for an offline example.
 
 ```sh
 ./build/debug/trytr --render-text docs/examples/text-graph.trytr

@@ -1,6 +1,8 @@
 #include "svg_render.h"
 
 #include "limits.h"
+#include "layout/text.h"
+#include "layout/geometry.h"
 #include "trytr/math/curve.h"
 #include "plot.h"
 
@@ -122,207 +124,6 @@ static void include_bounds(SvgState *state, int64_t left, int64_t top,
     if (bottom > state->max_y) state->max_y = bottom;
 }
 
-static size_t line_end(const char *text, size_t length, size_t start)
-{
-    size_t end = start;
-    while (end < length && text[end] != '\n' && text[end] != '\r') ++end;
-    return end;
-}
-
-static size_t next_line_start(const char *text, size_t length, size_t end)
-{
-    if (end >= length) return length;
-    if (text[end] == '\r' && end + 1u < length && text[end + 1u] == '\n') {
-        return end + 2u;
-    }
-    return end + 1u;
-}
-
-static size_t utf8_scalar_width(unsigned char first)
-{
-    if (first <= 0x7Fu) return 1u;
-    if (first <= 0xDFu) return 2u;
-    if (first <= 0xEFu) return 3u;
-    return 4u;
-}
-
-static size_t utf8_scalar_count(const char *text, size_t length)
-{
-    size_t count = 0u;
-    for (size_t offset = 0u; offset < length; ++count) {
-        size_t width = utf8_scalar_width((unsigned char)text[offset]);
-        if (width > length - offset) width = 1u;
-        offset += width;
-    }
-    return count;
-}
-
-static void text_metrics(const TrytrDocumentElement *element,
-                        int64_t *font_size, int64_t *line_height)
-{
-    int64_t line_gap;
-    switch (element->kind) {
-        case TRYTR_ELEMENT_HEADING:
-            *font_size = 28;
-            line_gap = 8;
-            break;
-        case TRYTR_ELEMENT_MATH:
-            *font_size = 18;
-            line_gap = 8;
-            break;
-        default:
-            *font_size = 16;
-            line_gap = 6;
-            break;
-    }
-    if (element->has_font_size) *font_size = element->font_size;
-    *line_height = *font_size + line_gap;
-}
-
-static int64_t estimated_text_width(const char *text, size_t length,
-                                    int64_t font_size)
-{
-    return (int64_t)utf8_scalar_count(text, length) * font_size;
-}
-
-typedef struct TextLineIterator {
-    const char *text;
-    size_t length;
-    size_t cursor;
-    int64_t font_size;
-    int64_t wrap_width;
-    bool done;
-} TextLineIterator;
-
-typedef struct TextLine {
-    size_t start;
-    size_t end;
-    int64_t width;
-} TextLine;
-
-static bool is_text_space(char value)
-{
-    return value == ' ' || value == '\t';
-}
-
-static void text_iterator_advance_paragraph(TextLineIterator *iterator,
-                                            size_t paragraph_end)
-{
-    if (paragraph_end == iterator->length) {
-        iterator->done = true;
-    } else {
-        iterator->cursor = next_line_start(iterator->text,
-                                           iterator->length,
-                                           paragraph_end);
-    }
-}
-
-static void text_iterator_advance_word(TextLineIterator *iterator,
-                                       size_t word_end,
-                                       size_t paragraph_end)
-{
-    size_t next_word = word_end;
-    while (next_word < paragraph_end &&
-           is_text_space(iterator->text[next_word])) ++next_word;
-    if (next_word == paragraph_end) {
-        text_iterator_advance_paragraph(iterator, paragraph_end);
-    } else {
-        iterator->cursor = next_word;
-    }
-}
-
-static bool text_line_next(TextLineIterator *iterator, TextLine *out_line)
-{
-    if (iterator == NULL || out_line == NULL || iterator->done) return false;
-    const size_t paragraph_end = line_end(iterator->text, iterator->length,
-                                          iterator->cursor);
-    if (iterator->wrap_width <= 0) {
-        out_line->start = iterator->cursor;
-        out_line->end = paragraph_end;
-        out_line->width = estimated_text_width(
-            iterator->text + iterator->cursor,
-            paragraph_end - iterator->cursor,
-            iterator->font_size);
-        text_iterator_advance_paragraph(iterator, paragraph_end);
-        return true;
-    }
-
-    size_t word_start = iterator->cursor;
-    while (word_start < paragraph_end &&
-           is_text_space(iterator->text[word_start])) ++word_start;
-    if (word_start == paragraph_end) {
-        out_line->start = word_start;
-        out_line->end = word_start;
-        out_line->width = 0;
-        text_iterator_advance_paragraph(iterator, paragraph_end);
-        return true;
-    }
-
-    const size_t visual_start = word_start;
-    size_t last_word_end = word_start;
-    int64_t width = 0;
-    for (;;) {
-        size_t word_end = word_start;
-        while (word_end < paragraph_end &&
-               !is_text_space(iterator->text[word_end])) {
-            size_t scalar_width = utf8_scalar_width(
-                (unsigned char)iterator->text[word_end]);
-            if (scalar_width > paragraph_end - word_end) scalar_width = 1u;
-            word_end += scalar_width;
-        }
-        const int64_t word_width = estimated_text_width(
-            iterator->text + word_start, word_end - word_start,
-            iterator->font_size);
-        const int64_t gap_width = width == 0
-            ? 0
-            : (int64_t)(word_start - last_word_end) * iterator->font_size;
-        const int64_t candidate_width = width + gap_width + word_width;
-
-        if (width > 0 && candidate_width > iterator->wrap_width) {
-            out_line->start = visual_start;
-            out_line->end = last_word_end;
-            out_line->width = width;
-            iterator->cursor = word_start;
-            return true;
-        }
-        if (width == 0 && word_width > iterator->wrap_width) {
-            out_line->start = visual_start;
-            out_line->end = word_end;
-            out_line->width = word_width;
-            text_iterator_advance_word(iterator, word_end, paragraph_end);
-            return true;
-        }
-
-        width = candidate_width;
-        last_word_end = word_end;
-        size_t next_word = word_end;
-        while (next_word < paragraph_end &&
-               is_text_space(iterator->text[next_word])) ++next_word;
-        if (next_word == paragraph_end) {
-            out_line->start = visual_start;
-            out_line->end = last_word_end;
-            out_line->width = width;
-            text_iterator_advance_paragraph(iterator, paragraph_end);
-            return true;
-        }
-        word_start = next_word;
-    }
-}
-
-static TextLineIterator text_line_iterator(const TrytrDocumentElement *element,
-                                           int64_t font_size)
-{
-    return (TextLineIterator){
-        .text = element->text == NULL ? "" : element->text,
-        .length = element->text_length,
-        .font_size = font_size,
-        .wrap_width = element->has_text_width &&
-                      (element->kind == TRYTR_ELEMENT_HEADING ||
-                       element->kind == TRYTR_ELEMENT_TEXT)
-            ? element->text_width : 0
-    };
-}
-
 static bool layout_text(SvgState *state, const TrytrDocumentElement *element)
 {
     if (element->kind != TRYTR_ELEMENT_HEADING &&
@@ -330,20 +131,20 @@ static bool layout_text(SvgState *state, const TrytrDocumentElement *element)
         element->kind != TRYTR_ELEMENT_MATH) return false;
     int64_t font_size;
     int64_t line_height;
-    text_metrics(element, &font_size, &line_height);
+    trytr_layout_text_metrics(element, &font_size, &line_height);
     if (element->text == NULL && element->text_length != 0u) return false;
-    TextLineIterator iterator = text_line_iterator(element, font_size);
-    TextLine line;
+    TrytrTextLineIterator iterator = trytr_layout_text_iterator(element, font_size);
+    TrytrTextLine line;
     int64_t maximum_width = 0;
-    while (text_line_next(&iterator, &line)) {
+    while (trytr_layout_text_line_next(&iterator, &line)) {
         if (line.width > maximum_width) maximum_width = line.width;
     }
     const int64_t alignment_width = element->has_text_width
         ? element->text_width : maximum_width;
 
-    iterator = text_line_iterator(element, font_size);
+    iterator = trytr_layout_text_iterator(element, font_size);
     int64_t top = state->flow_y;
-    while (text_line_next(&iterator, &line)) {
+    while (trytr_layout_text_line_next(&iterator, &line)) {
         int64_t left = 16;
         if (element->has_text_alignment &&
             element->text_alignment == TRYTR_TEXT_ALIGN_CENTER) {
@@ -384,65 +185,13 @@ static bool measure_element(const TrytrDocumentElement *element, void *user_data
         state->group_translate_y = state->group_stack_y[state->group_depth];
         return true;
     }
-    switch (element->kind) {
-        case TRYTR_ELEMENT_RECT:
-        case TRYTR_ELEMENT_ROUNDRECT:
-            include_bounds(state,
-                           element->x + state->group_translate_x,
-                           element->y + state->group_translate_y,
-                           element->x + element->width + state->group_translate_x,
-                           element->y + element->height + state->group_translate_y);
-            return true;
-        case TRYTR_ELEMENT_LINE: {
-            const int64_t left = element->x < element->x2 ? element->x : element->x2;
-            const int64_t top = element->y < element->y2 ? element->y : element->y2;
-            const int64_t right = element->x > element->x2 ? element->x : element->x2;
-            const int64_t bottom = element->y > element->y2 ? element->y : element->y2;
-            include_bounds(state,
-                           left + state->group_translate_x,
-                           top + state->group_translate_y,
-                           right + state->group_translate_x,
-                           bottom + state->group_translate_y);
-            return true;
-        }
-        case TRYTR_ELEMENT_CIRCLE:
-            include_bounds(state,
-                           element->x - element->radius + state->group_translate_x,
-                           element->y - element->radius + state->group_translate_y,
-                           element->x + element->radius + state->group_translate_x,
-                           element->y + element->radius + state->group_translate_y);
-            return true;
-        case TRYTR_ELEMENT_ELLIPSE:
-            include_bounds(state,
-                           element->x - element->radius_x + state->group_translate_x,
-                           element->y - element->radius_y + state->group_translate_y,
-                           element->x + element->radius_x + state->group_translate_x,
-                           element->y + element->radius_y + state->group_translate_y);
-            return true;
-        case TRYTR_ELEMENT_PATH:
-            include_bounds(state,
-                           element->min_x + state->group_translate_x,
-                           element->min_y + state->group_translate_y,
-                           element->max_x + state->group_translate_x,
-                           element->max_y + state->group_translate_y);
-            return true;
-        case TRYTR_ELEMENT_POLYGON:
-            include_bounds(state,
-                           element->min_x + state->group_translate_x,
-                           element->min_y + state->group_translate_y,
-                           element->max_x + state->group_translate_x,
-                           element->max_y + state->group_translate_y);
-            return true;
-        case TRYTR_ELEMENT_PLOT:
-            include_bounds(state,
-                           element->x - 48 + state->group_translate_x,
-                           element->y + state->group_translate_y,
-                           element->x + element->width + 48 + state->group_translate_x,
-                           element->y + element->height + 24 + state->group_translate_y);
-            return true;
-        default:
-            return layout_text(state, element);
+    TrytrLayoutBounds bounds;
+    if (trytr_layout_geometry_bounds(element, state->group_translate_x,
+                                     state->group_translate_y, &bounds)) {
+        include_bounds(state, bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
+        return true;
     }
+    return layout_text(state, element);
 }
 
 static bool append_xml_text(SvgBuffer *buffer, const char *text, size_t length)
@@ -483,6 +232,14 @@ static bool append_xml_text(SvgBuffer *buffer, const char *text, size_t length)
         offset += width;
     }
     return true;
+}
+
+static size_t utf8_scalar_width(unsigned char first)
+{
+    if (first <= 0x7Fu) return 1u;
+    if (first <= 0xDFu) return 2u;
+    if (first <= 0xEFu) return 3u;
+    return 4u;
 }
 
 static bool math_group_end(const char *text, size_t length, size_t open,
@@ -614,7 +371,7 @@ static bool render_text(SvgState *state, const TrytrDocumentElement *element)
     const char *family = "sans-serif";
     int64_t font_size;
     int64_t line_height;
-    text_metrics(element, &font_size, &line_height);
+    trytr_layout_text_metrics(element, &font_size, &line_height);
     const char *weight = "400";
     const char *style = "normal";
     if (element->kind == TRYTR_ELEMENT_HEADING) {
@@ -625,10 +382,10 @@ static bool render_text(SvgState *state, const TrytrDocumentElement *element)
     }
     if (element->text == NULL && element->text_length != 0u) return false;
     const char *text = element->text == NULL ? "" : element->text;
-    TextLineIterator iterator = text_line_iterator(element, font_size);
-    TextLine line;
+    TrytrTextLineIterator iterator = trytr_layout_text_iterator(element, font_size);
+    TrytrTextLine line;
     int64_t maximum_width = 0;
-    while (text_line_next(&iterator, &line)) {
+    while (trytr_layout_text_line_next(&iterator, &line)) {
         if (line.width > maximum_width) maximum_width = line.width;
     }
     const int64_t alignment_width = element->has_text_width
@@ -660,9 +417,9 @@ static bool render_text(SvgState *state, const TrytrDocumentElement *element)
         !buffer_format(&state->output, " id=\"%s\"", element->id)) return false;
     if (!buffer_append(&state->output, ">", 1u)) return false;
 
-    iterator = text_line_iterator(element, font_size);
+    iterator = trytr_layout_text_iterator(element, font_size);
     size_t line_count = 0u;
-    while (text_line_next(&iterator, &line)) {
+    while (trytr_layout_text_line_next(&iterator, &line)) {
         if (!buffer_format(&state->output,
                            "<tspan x=\"%" PRId64 "\" dy=\"%" PRId64 "\">",
                            anchor_x,
@@ -920,11 +677,11 @@ static bool render_element(const TrytrDocumentElement *element, void *user_data)
     if (state->suppress_math_text && element->kind == TRYTR_ELEMENT_MATH) {
         int64_t font_size;
         int64_t line_height;
-        text_metrics(element, &font_size, &line_height);
-        TextLineIterator iterator = text_line_iterator(element, font_size);
-        TextLine line;
+        trytr_layout_text_metrics(element, &font_size, &line_height);
+        TrytrTextLineIterator iterator = trytr_layout_text_iterator(element, font_size);
+        TrytrTextLine line;
         size_t line_count = 0u;
-        while (text_line_next(&iterator, &line)) ++line_count;
+        while (trytr_layout_text_line_next(&iterator, &line)) ++line_count;
         state->flow_y += (int64_t)line_count * line_height + 8;
         return true;
     }
@@ -1111,4 +868,36 @@ TrytrStatus trytr_svg_render_without_math(
 )
 {
     return svg_render(document, out_svg, out_length, true);
+}
+
+TrytrStatus trytr_svg_render_layout_canvas(
+    const TrytrLayout *layout, size_t block_index, char **out_svg, size_t *out_length)
+{
+    if (out_svg != NULL) *out_svg = NULL;
+    if (out_length != NULL) *out_length = 0u;
+    const TrytrLayoutBlock *block = trytr_layout_block_at(layout, block_index);
+    if (block == NULL || block->kind != TRYTR_LAYOUT_CANVAS ||
+        out_svg == NULL || out_length == NULL) return TRYTR_STATUS_INVALID_ARGUMENT;
+    SvgState state = {0};
+    if (!buffer_format(&state.output,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" width=\"%" PRId64
+        "\" height=\"%" PRId64 "\" viewBox=\"%" PRId64 " %" PRId64 " %" PRId64
+        " %" PRId64 "\" overflow=\"hidden\"><title>trytr canvas</title>\n",
+        block->width, block->height, block->canvas_x, block->canvas_y,
+        block->width, block->height)) goto fail;
+    for (size_t index = 0u; index < block->element_count; ++index) {
+        const TrytrLayoutElement *item = trytr_layout_element_at(layout, block->first_element + index);
+        if (item == NULL) { state.output.status = TRYTR_STATUS_INVALID_ARGUMENT; goto fail; }
+        if (!buffer_format(&state.output, "<g transform=\"translate(%" PRId64 " %" PRId64 ")\">",
+                           item->translate_x, item->translate_y) ||
+            !render_element(&item->element, &state) ||
+            !buffer_append(&state.output, "</g>\n", 5u)) goto fail;
+    }
+    if (!buffer_append(&state.output, "</svg>\n", 7u)) goto fail;
+    *out_svg = state.output.data;
+    *out_length = state.output.length;
+    return TRYTR_STATUS_OK;
+fail:
+    free(state.output.data);
+    return state.output.status == TRYTR_STATUS_OK ? TRYTR_STATUS_EXECUTION_FAILED : state.output.status;
 }

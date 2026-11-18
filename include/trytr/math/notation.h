@@ -12,7 +12,9 @@
  * SQUARE_ROOT has one radicand child.
  * Nodes and their source spans are owned by the parsed document and remain
  * valid until that document is destroyed. Offsets are byte offsets into the
- * owning TrytrDocumentElement.text string. operator_offset is zero when the
+ * owning TrytrDocumentElement.text string for display math. Inline run trees
+ * instead use offsets into that run's content slice (see trytr/inline.h).
+ * operator_offset is zero when the
  * node has no explicit operator.
  * The parser bounds tree size; if that bound is reached, the expression is
  * represented by one RAW node while the original text remains unchanged.

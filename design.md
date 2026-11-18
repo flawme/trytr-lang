@@ -514,6 +514,11 @@ future patch operations.
 
 Documents are represented as versioned snapshots.
 
+The current `<trytr/stream.h>` API implements revisioned, immutable snapshots
+for explicit append frames. A failed candidate preserves the current revision
+and pending source. Hosts choose frame boundaries and may retain older snapshots
+while rendering. The patch operations below remain the target design.
+
 Changes are applied using controlled patches.
 
 Supported operations include:
@@ -1244,8 +1249,17 @@ cache of recent rendered previews in process memory; it does not retain a
 conversation history or a live parsed document between renders. Parameter
 changes currently parse the complete source again.
 
-Reference-counted shared assets and allocation pools are not implemented in
-the prototype.
+The C streaming API retains complete document revisions through coarse snapshot
+reference counts. Each snapshot owns its document arena; syntax nodes are not
+individually reference counted. Up to eight committed snapshot objects may be
+live per stream. Snapshots can outlive the stream. Pending input and rejected
+candidate diagnostics belong to the stream and are released on cancellation,
+the next mutation, or destruction as appropriate. Hosts must retain a snapshot
+until all layouts borrowing its document have been destroyed.
+
+Reference-counted shared assets and allocation pools are not implemented in the
+prototype. Streaming currently reparses whole candidates, with a 1 MiB source
+bound and 64 MiB cumulative parse-byte budget. APIs are single-threaded.
 
 ## 26.2 Target model
 
@@ -1679,9 +1693,11 @@ fractions, roots, scripts, unary and binary operators, and relations while
 retaining source spans. Unknown commands and formulas beyond the tree-size
 bound remain available through raw text nodes. The MathML backend consumes
 this structure; SVG and text output preserve the original source rendering.
-MCP Apps previews show the MathML panel beside vector content. Broader MathML
-coverage, in-flow math layout, and matching math typography in PDF are future
-steps.
+MCP Apps previews show the MathML panel beside vector content. The native HTML
+backend instead places individual MathML display equations in source order
+among text and canvas blocks. Opt-in heading/text inline runs use the same
+notation trees and native MathML. Broader MathML coverage and
+matching math typography in PDF are future steps.
 
 ## Stage 4 — Layout and typography
 
@@ -1694,6 +1710,31 @@ Build:
 - Deterministic layout rules.
 
 Goal: render structured multilingual documents.
+
+The first shared layout module now owns word wrapping, conservative text
+metrics, geometry bounds, and immutable flow snapshots. Consecutive geometry
+elements form canvas runs separated by headings, paragraphs, and display
+equations. Each run retains local geometry and composed group translations;
+flow hosts place the run between surrounding content. Existing coordinate SVG
+output uses the shared measurements while retaining its placement rules.
+
+Native HTML output consumes snapshots to present text, MathML, and vector
+canvases in reading order. Browser math measurement determines actual equation
+height and reflows later blocks. Text output also interleaves canvas runs and
+paragraphs. Snapshot arrays borrow document-owned text and math trees and have
+explicit destruction. Line counts and layout extents are bounded. Text widths
+and snapshot math sizes still use source-based estimates; shaped fonts,
+nested flow containers, and pagination remain future work. See
+`docs/layout.md` for the API and bounds.
+
+Headings and paragraphs may explicitly enable `inline-math:true`, with
+nonempty, non-nested `\( ... \)` formulas on one source line. Dollar signs and
+legacy paragraphs remain literal. Parameter expansion precedes construction
+of document-owned text/math runs and their notation trees. Run spans address
+expanded element text; math-tree spans address each run's content slice.
+Shared wrapping treats formulas as indivisible units. Native HTML emits inline
+MathML among words; SVG/PDF/text preserve notation source. Inline runs share a
+4,096-run document budget. See `docs/inline-math.md` for escapes and errors.
 
 ## Stage 5 — Scientific and document modules
 
@@ -1718,6 +1759,18 @@ Build:
 - Framed streaming protocol.
 
 Goal: support AI-generated documents that update continuously.
+
+The first C streaming API now supports explicit append frames, atomic
+parse/validate/compile and execution preflight, revision conflicts, cancellation,
+finish, and retained snapshots. Arbitrary input chunks can split UTF-8, comments,
+or math delimiters. Only complete valid candidates become visible; incomplete
+or rejected frames preserve the previous revision and can be completed or
+cancelled. Snapshot retention and cumulative parsing have explicit budgets.
+See `docs/streaming.md` and `examples/stream_demo.c`.
+
+This implementation reparses the full assembled source. Editing existing
+elements, changing parameter values transactionally, dependency reuse,
+incremental layout, and a wire framing schema remain future work.
 
 ## Stage 7 — Interactivity and animation
 

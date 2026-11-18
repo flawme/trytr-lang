@@ -294,6 +294,8 @@ static void validate_text_options(const TrytrNode *node,
         else if (strcmp(property->name, "align") == 0) index = 2u;
         else if (strcmp(property->name, "width") == 0 &&
                  node->kind != TRYTR_NODE_MATH) index = 3u;
+        else if (strcmp(property->name, "inline-math") == 0 &&
+                 node->kind != TRYTR_NODE_MATH) index = 4u;
         else {
             validation_error(diagnostics, "TRYTR-E-PROPERTY", property->location,
                              "unknown text option");
@@ -326,6 +328,9 @@ static void validate_text_options(const TrytrNode *node,
                     property->integer_value > TRYTR_DEFAULT_COORDINATE_LIMIT)) {
             validation_error(diagnostics, "TRYTR-E-TEXT-WIDTH", property->location,
                              "text width must be between 1 and the coordinate limit");
+        } else if (index == 4u && property->integer_value != 0 && property->integer_value != 1) {
+            validation_error(diagnostics, "TRYTR-E-INLINE-MATH", property->location,
+                             "inline-math must be true or false");
         }
     }
 }

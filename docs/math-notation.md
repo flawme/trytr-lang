@@ -56,6 +56,10 @@ initial structured interface, not a full TeX grammar. The MathML output
 coverage and remaining limitations are described in
 [native math rendering](mathml-rendering.md).
 
+Opt-in heading/text [inline runs](inline-math.md) also use this parser. Their
+notation-tree offsets refer to each run's content slice within the paragraph.
+Run spans and trees are immutable and share the parsed document's lifetime.
+
 Dedicated adversarial coverage is in `tests/test_math_notation.c`; conversion
 and XML-escaping coverage is in `tests/test_mathml.c`. The notation tests check
 nested fractions and roots, source-span bounds, unknown and malformed

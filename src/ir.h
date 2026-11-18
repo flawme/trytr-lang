@@ -26,6 +26,7 @@ typedef struct TrytrIRInstruction {
     size_t element_index;
     const char *stable_id;
     const TrytrMathNode *math_tree;
+    const TrytrInlineRun *inline_runs;
     TrytrSourceLocation location;
     bool has_fill;
     uint32_t fill_rgb;

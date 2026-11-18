@@ -501,3 +501,54 @@ TrytrStatus trytr_mathml_render(TrytrDocument *document,
     }
     return status;
 }
+
+static TrytrStatus render_fragment(
+    const TrytrDocumentElement *element, bool inline_math, char **out_mathml, size_t *out_length)
+{
+    if (out_mathml != NULL) *out_mathml = NULL;
+    if (out_length != NULL) *out_length = 0u;
+    if (element == NULL || element->kind != TRYTR_ELEMENT_MATH ||
+        (element->text == NULL && element->text_length != 0u) ||
+        out_mathml == NULL || out_length == NULL) return TRYTR_STATUS_INVALID_ARGUMENT;
+    MathmlBuffer buffer = {.status = TRYTR_STATUS_OK};
+    const char *source = element->text == NULL ? "" : element->text;
+    if (!append_format(&buffer, "<math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"%s\">",
+                        inline_math ? "inline" : "block") ||
+        !(element->math_tree != NULL
+            ? append_node(&buffer, source, element->text_length, element->math_tree, 0u)
+            : append_tagged_text(&buffer, "mtext", source, element->text_length)) ||
+        !append_cstr(&buffer, "</math>")) {
+        free(buffer.data);
+        return buffer.status;
+    }
+    *out_mathml = buffer.data;
+    *out_length = buffer.length;
+    return TRYTR_STATUS_OK;
+}
+
+TrytrStatus trytr_mathml_render_element(
+    const TrytrDocumentElement *element, char **out_mathml, size_t *out_length)
+{
+    return render_fragment(element, false, out_mathml, out_length);
+}
+
+TrytrStatus trytr_mathml_render_inline_run(
+    const TrytrDocumentElement *element, const TrytrInlineRun *run,
+    char **out_mathml, size_t *out_length)
+{
+    if (out_mathml != NULL) *out_mathml = NULL;
+    if (out_length != NULL) *out_length = 0u;
+    if (element == NULL || run == NULL || run->kind != TRYTR_INLINE_MATH ||
+        (element->kind != TRYTR_ELEMENT_TEXT && element->kind != TRYTR_ELEMENT_HEADING) ||
+        (element->text == NULL && element->text_length != 0u) ||
+        run->source_offset > element->text_length ||
+        run->source_length > element->text_length - run->source_offset ||
+        run->content_offset < run->source_offset ||
+        run->content_offset > run->source_offset + run->source_length ||
+        run->content_length > run->source_offset + run->source_length - run->content_offset)
+        return TRYTR_STATUS_INVALID_ARGUMENT;
+    const TrytrDocumentElement math = {.kind = TRYTR_ELEMENT_MATH,
+        .text = element->text == NULL ? "" : element->text + run->content_offset,
+        .text_length = run->content_length, .math_tree = run->math_tree};
+    return render_fragment(&math, true, out_mathml, out_length);
+}

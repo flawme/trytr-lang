@@ -149,6 +149,7 @@ static TrytrStatus append_node(const TrytrNode *node, TrytrIRInstruction *instru
     TrytrIRInstruction *instruction = &instructions[(*instruction_index)++];
     instruction->element_index = current_node_index;
     instruction->stable_id = node->id;
+    instruction->inline_runs = node->inline_runs;
     instruction->location = node->location;
     int64_t color_value = 0;
     if (shape_property(node, "fill", &color_value)) {

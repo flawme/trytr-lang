@@ -1,4 +1,5 @@
 #include "trytr/document.h"
+#include "document_internal.h"
 
 #include "parser.h"
 #include "ir.h"
@@ -26,6 +27,7 @@ const char *trytr_status_string(TrytrStatus status)
         case TRYTR_STATUS_NO_MEMORY: return "out of memory";
         case TRYTR_STATUS_LIMIT_EXCEEDED: return "resource limit exceeded";
         case TRYTR_STATUS_EXECUTION_FAILED: return "document execution failed";
+        case TRYTR_STATUS_REVISION_CONFLICT: return "document revision conflict";
     }
     return "unknown status";
 }
@@ -163,6 +165,11 @@ void trytr_document_destroy(TrytrDocument *document)
 size_t trytr_document_diagnostic_count(const TrytrDocument *document)
 {
     return document == NULL ? 0u : document->output.diagnostics.count;
+}
+
+size_t trytr_document_body_end(const TrytrDocument *document)
+{
+    return document == NULL ? 0u : document->output.document_body_end;
 }
 
 const TrytrDiagnostic *trytr_document_diagnostic_at(

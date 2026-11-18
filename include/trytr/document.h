@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "trytr/math/notation.h"
+#include "trytr/inline.h"
 
 typedef struct TrytrDocument TrytrDocument;
 
@@ -15,7 +16,8 @@ typedef enum TrytrStatus {
     TRYTR_STATUS_INVALID_DOCUMENT,
     TRYTR_STATUS_NO_MEMORY,
     TRYTR_STATUS_LIMIT_EXCEEDED,
-    TRYTR_STATUS_EXECUTION_FAILED
+    TRYTR_STATUS_EXECUTION_FAILED,
+    TRYTR_STATUS_REVISION_CONFLICT
 } TrytrStatus;
 
 typedef enum TrytrDiagnosticSeverity {
@@ -100,6 +102,8 @@ typedef enum TrytrTextAlignment {
  * document units; math elements keep their source lines unwrapped.
  * Math elements also expose an immutable math_tree. Its nodes and source spans
  * remain valid until the document is destroyed; node offsets refer to text.
+ * Opt-in heading/text inline_runs expose mixed text and math. Their run spans
+ * refer to text, and their math-tree spans refer to each run's content slice.
  */
 typedef struct TrytrDocumentElement {
     TrytrElementKind kind;
@@ -145,6 +149,9 @@ typedef struct TrytrDocumentElement {
     /* Plot controls resolve to true by default; stroke style is optional. */
     bool plot_grid;
     bool plot_markers;
+    /* Opt-in text/heading runs, NULL for legacy literal text. Run tree spans
+     * refer to the run's content slice; all pointers live with the document. */
+    const TrytrInlineRun *inline_runs;
 } TrytrDocumentElement;
 
 /* Return false to stop execution; the API then returns EXECUTION_FAILED. */

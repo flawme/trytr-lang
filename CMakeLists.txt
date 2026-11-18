@@ -70,15 +70,23 @@ add_library(
         src/plot.c
         src/plot_formula.c
         src/math/notation.c
+        src/math/inline.c
         src/mathml_render.c
+        src/html_render.c
         src/parser.c
         src/validator.c
         src/ir.c
         src/vm.c
+        src/layout/text.c
+        src/layout/geometry.c
+        src/layout/flow.c
         src/svg_render.c
         src/text_raster.c
         src/text_render.c
         src/document.c
+        src/stream/stream.c
+        src/stream/publish.c
+        src/stream/snapshot.c
 )
 target_include_directories(trytr_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(trytr_core PUBLIC trytr_math)
@@ -87,6 +95,10 @@ trytr_target_defaults(trytr_core)
 add_executable(trytr src/main.c)
 target_link_libraries(trytr PRIVATE trytr_core)
 trytr_target_defaults(trytr)
+
+add_executable(trytr_stream_demo examples/stream_demo.c)
+target_link_libraries(trytr_stream_demo PRIVATE trytr_core)
+trytr_target_defaults(trytr_stream_demo)
 
 # PDF export reuses Trytr's SVG output and a locally installed headless
 # Chromium. Keep this optional so the language core remains dependency-free.
@@ -151,6 +163,15 @@ if(BUILD_TESTING)
     trytr_add_test(trytr_vm_tests trytr.vm tests/test_vm.c)
     trytr_add_test(trytr_svg_tests trytr.svg tests/test_svg.c)
     trytr_add_test(trytr_text_render_tests trytr.text_render tests/test_text_render.c)
+    trytr_add_test(trytr_layout_tests trytr.layout tests/test_layout.c)
+    trytr_add_test(trytr_html_tests trytr.html tests/test_html.c)
+    trytr_add_test(trytr_inline_math_tests trytr.inline_math tests/test_inline_math.c)
+    trytr_add_test(trytr_inline_render_tests trytr.inline_render tests/test_inline_render.c)
+    trytr_add_test(trytr_stream_tests trytr.stream tests/test_stream.c)
+    trytr_add_test(trytr_stream_limit_tests trytr.stream.limits tests/test_stream_limits.c)
+    trytr_add_test(trytr_stream_render_tests trytr.stream.render tests/test_stream_render.c)
+    add_test(NAME trytr.stream.demo COMMAND trytr_stream_demo "${CMAKE_CURRENT_BINARY_DIR}/stream-demo")
+    set_tests_properties(trytr.stream.demo PROPERTIES PASS_REGULAR_EXPRESSION "revision 3:")
 
     add_test(NAME trytr.cli.version COMMAND trytr --version)
     set_tests_properties(
@@ -186,6 +207,16 @@ if(BUILD_TESTING)
         trytr.cli.render_mathml
         PROPERTIES PASS_REGULAR_EXPRESSION "<mfrac>"
     )
+    add_test(
+        NAME trytr.cli.render_html
+        COMMAND trytr --render-html "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/flow-math.trytr"
+    )
+    set_tests_properties(trytr.cli.render_html PROPERTIES PASS_REGULAR_EXPRESSION "<mfrac>")
+    add_test(
+        NAME trytr.cli.render_inline_math
+        COMMAND trytr --render-html "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/inline-math.trytr"
+    )
+    set_tests_properties(trytr.cli.render_inline_math PROPERTIES PASS_REGULAR_EXPRESSION "display=\"inline\"")
     add_test(
         NAME trytr.cli.dump_group_events
         COMMAND trytr --dump-ir "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/groups.trytr"

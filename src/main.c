@@ -1,4 +1,5 @@
 #include "trytr/document.h"
+#include "trytr/html.h"
 #include "trytr/math/mathml.h"
 #include "trytr/trytr.h"
 #include "pdf_render.h"
@@ -18,7 +19,7 @@ static void print_usage(FILE *stream)
 {
     fputs("usage: trytr [--version] [--help] [--set ID=INTEGER]...\n"
           "             [--dump-ir|--dump-parameters|--render-svg|--render-svg-no-math|--render-mathml|"
-          "--render-text|--render-pdf] [FILE|-]\n", stream);
+          "--render-html|--render-text|--render-pdf] [FILE|-]\n", stream);
 }
 
 static void free_override_ids(char **ids, size_t count)
@@ -199,7 +200,7 @@ static int read_source(FILE *stream, char **out_source, size_t *out_length)
 static int process_source(const char *name, const char *source, size_t length,
                           bool dump_ir, bool dump_parameters,
                           bool render_svg, bool render_text, bool render_pdf,
-                          bool render_mathml, bool render_svg_no_math,
+                          bool render_mathml, bool render_svg_no_math, bool render_html,
                           const TrytrParameterOverride *overrides,
                           size_t override_count)
 {
@@ -234,7 +235,7 @@ static int process_source(const char *name, const char *source, size_t length,
                 status = TRYTR_STATUS_EXECUTION_FAILED;
                 fputs("trytr: failed to write parameter metadata\n", stderr);
             }
-        } else if (render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+        } else if (render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
             char *output = NULL;
             size_t output_length = 0u;
             if (render_pdf) {
@@ -246,6 +247,8 @@ static int process_source(const char *name, const char *source, size_t length,
                                                   &output, &output_length);
                 }
                 free(svg);
+            } else if (render_html) {
+                status = trytr_html_render(document, &output, &output_length);
             } else if (render_mathml) {
                 status = trytr_mathml_render(document, &output, &output_length);
             } else if (render_svg_no_math) {
@@ -293,6 +296,7 @@ int main(int argc, char **argv)
     bool render_pdf = false;
     bool render_mathml = false;
     bool render_svg_no_math = false;
+    bool render_html = false;
     const char *input_path = NULL;
     TrytrParameterOverride overrides[TRYTR_DEFAULT_PARAMETER_LIMIT];
     char *override_ids[TRYTR_DEFAULT_PARAMETER_LIMIT] = {0};
@@ -337,42 +341,42 @@ int main(int argc, char **argv)
             };
             ++override_count;
         } else if (strcmp(argv[index], "--dump-ir") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             dump_ir = true;
         } else if (strcmp(argv[index], "--dump-parameters") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             dump_parameters = true;
         } else if (strcmp(argv[index], "--render-svg") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             render_svg = true;
         } else if (strcmp(argv[index], "--render-svg-no-math") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             render_svg_no_math = true;
         } else if (strcmp(argv[index], "--render-text") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
             }
             render_text = true;
         } else if (strcmp(argv[index], "--render-pdf") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
@@ -384,8 +388,15 @@ int main(int argc, char **argv)
                 break;
             }
             render_pdf = true;
+        } else if (strcmp(argv[index], "--render-html") == 0) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
+                fputs("trytr: choose only one output mode\n", stderr);
+                option_error = 2;
+                break;
+            }
+            render_html = true;
         } else if (strcmp(argv[index], "--render-mathml") == 0) {
-            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math) {
+            if (dump_ir || dump_parameters || render_svg || render_text || render_pdf || render_mathml || render_svg_no_math || render_html) {
                 fputs("trytr: choose only one output mode\n", stderr);
                 option_error = 2;
                 break;
@@ -433,7 +444,7 @@ int main(int argc, char **argv)
 
     result = process_source(name, source, length, dump_ir, dump_parameters,
                             render_svg, render_text, render_pdf, render_mathml,
-                            render_svg_no_math,
+                            render_svg_no_math, render_html,
                             overrides, override_count);
     if (fflush(stdout) != 0) {
         fputs("trytr: failed to write output\n", stderr);

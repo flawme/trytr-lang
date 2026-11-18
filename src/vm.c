@@ -63,6 +63,7 @@ TrytrStatus trytr_vm_execute(
             .element_index = instruction->element_index,
             .id = instruction->stable_id,
             .math_tree = instruction->math_tree,
+            .inline_runs = instruction->inline_runs,
             .location = instruction->location,
             .has_fill = instruction->has_fill,
             .fill_rgb = instruction->fill_rgb,
